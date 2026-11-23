@@ -45,7 +45,7 @@ async function unlock(code) {
   const bits = new Uint8Array(await crypto.subtle.deriveBits({name: 'PBKDF2', salt, iterations: ITER, hash: 'SHA-256'}, km, 384));
   const key = await crypto.subtle.importKey('raw', bits.slice(0, 32), 'AES-CBC', false, ['decrypt']);
   const txt = new TextDecoder().decode(await crypto.subtle.decrypt({name: 'AES-CBC', iv: bits.slice(32, 48)}, key, ct));
-  if (!txt.startsWith('OKAY1')) throw new Error('bad code');
+  if (!txt.startsWith('STATUS')) throw new Error('bad code');
   return txt.slice(6);
 }
 async function go(code, remember, fromAuto) {
@@ -72,7 +72,7 @@ document.getElementById('f').onsubmit = e => { e.preventDefault(); go(document.g
 
 def lock(path, code):
     with open(path, "rb") as f:
-        plain = b"OKAY1" + f.read()
+        plain = b"STATUS" + f.read()
     with tempfile.TemporaryDirectory() as d:
         src, dst = os.path.join(d, "p"), os.path.join(d, "c")
         with open(src, "wb") as f:
