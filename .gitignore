@@ -1,0 +1,5 @@
+data/
+snapshot.html
+__pycache__/
+*.pyc
+dist/

@@ -1,0 +1,297 @@
+{
+  "port": 8765,
+  "bind": "127.0.0.1",
+  "access_token": "",
+  "dashboard_url": "",
+  "notify": {
+    "macos": false,
+    "sound": false,
+    "min_level": 2,
+    "ntfy_server": "https://ntfy.sh",
+    "ntfy_topic": ""
+  },
+  "social_min_count": 5,
+  "assessment": {
+    "posture": "normal",
+    "heightened_multiplier": 1.5,
+    "simultaneity_minutes": 45,
+    "accident_prior": 3,
+    "elevated_score": 4,
+    "suspected_score": 6,
+    "attack_margin": 2
+  },
+  "intervals": {
+    "faa": 60,
+    "nws": 90,
+    "swpc": 300,
+    "usgs": 120,
+    "cisa": 900,
+    "sans": 300,
+    "ioda": 300,
+    "status_pages": 180,
+    "cloud": 180,
+    "adsb": 1200,
+    "reddit": 300,
+    "mastodon": 300,
+    "bluesky": 300,
+    "news": 600,
+    "canary": 45
+  },
+  "status_pages": [
+    {
+      "name": "Cloudflare",
+      "url": "https://www.cloudflarestatus.com"
+    },
+    {
+      "name": "GitHub",
+      "url": "https://www.githubstatus.com"
+    },
+    {
+      "name": "Twilio",
+      "url": "https://status.twilio.com"
+    },
+    {
+      "name": "Anthropic",
+      "url": "https://status.claude.com"
+    },
+    {
+      "name": "Discord",
+      "url": "https://discordstatus.com"
+    },
+    {
+      "name": "Zoom",
+      "url": "https://www.zoomstatus.com"
+    },
+    {
+      "name": "Reddit",
+      "url": "https://www.redditstatus.com"
+    },
+    {
+      "name": "Atlassian",
+      "url": "https://status.atlassian.com"
+    },
+    {
+      "name": "Shopify",
+      "url": "https://www.shopifystatus.com"
+    },
+    {
+      "name": "Dropbox",
+      "url": "https://status.dropbox.com"
+    }
+  ],
+  "news_queries": [
+    {
+      "name": "Aviation grounding / ATC failure",
+      "category": "aviation",
+      "thresholds": [
+        3,
+        6,
+        12
+      ],
+      "query": "\"nationwide ground stop\" OR \"all flights grounded\" OR \"FAA grounds\" OR \"air traffic control\" outage OR \"airspace closed\""
+    },
+    {
+      "name": "911 / cell / phone outage",
+      "category": "telecom",
+      "thresholds": [
+        4,
+        8,
+        15
+      ],
+      "query": "\"911 outage\" OR \"911 down\" OR \"911 service\" outage OR \"nationwide outage\" OR \"cell service outage\""
+    },
+    {
+      "name": "Power grid failure",
+      "category": "power",
+      "thresholds": [
+        4,
+        8,
+        15
+      ],
+      "query": "\"power grid\" attack OR blackout OR \"widespread power outage\" OR \"grid failure\" OR \"rolling blackouts\""
+    },
+    {
+      "name": "Cyberattack on infrastructure",
+      "category": "cyber",
+      "thresholds": [
+        6,
+        12,
+        20
+      ],
+      "query": "cyberattack OR \"cyber attack\" \"critical infrastructure\" OR nationwide OR \"water system\" OR hospitals OR airline"
+    },
+    {
+      "name": "Terror / coordinated attack",
+      "exclude": "\\b(game|gaming|fortnite|call of duty)\\b",
+      "category": "security",
+      "thresholds": [
+        3,
+        6,
+        12
+      ],
+      "query": "\"terrorist attack\" OR \"terror attack\" OR \"coordinated attack\" OR \"attacks across\""
+    },
+    {
+      "name": "Explosions / mass casualty",
+      "exclude": "\\b(bitcoin|crypto|grok|prediction|price|stocks?|shares|sales|growth|popularity|nba|nfl|nhl|mlb|ncaa|touchdown|game)\\b",
+      "category": "security",
+      "thresholds": [
+        8,
+        15,
+        25
+      ],
+      "query": "explosion OR bombing OR \"mass casualty\" \"United States\""
+    },
+    {
+      "name": "Nuclear / missile / EMP",
+      "exclude": "\\b(santa|christmas)\\b",
+      "category": "nuclear",
+      "thresholds": [
+        4,
+        8,
+        15
+      ],
+      "query": "\"electromagnetic pulse\" OR \"EMP attack\" OR \"missile strike\" \"United States\" OR \"nuclear detonation\" OR NORAD OR DEFCON"
+    },
+    {
+      "name": "Bank runs / market halts",
+      "category": "finance",
+      "thresholds": [
+        3,
+        6,
+        12
+      ],
+      "query": "\"bank run\" OR \"banks closed\" OR \"bank holiday\" OR \"markets halted\" OR \"market-wide circuit breaker\" OR \"NYSE halts trading\" OR \"ATMs down\""
+    },
+    {
+      "name": "Bank / payments outage",
+      "category": "finance",
+      "thresholds": [
+        3,
+        6,
+        12
+      ],
+      "query": "\"bank outage\" OR \"banking outage\" OR \"online banking down\" OR \"Zelle down\" OR \"direct deposit\" outage OR \"card declined\" nationwide OR \"payments outage\" OR \"ATMs down\""
+    },
+    {
+      "name": "Bank failure / withdrawal limits",
+      "category": "finance",
+      "thresholds": [
+        2,
+        5,
+        10
+      ],
+      "query": "\"bank failure\" OR \"bank collapse\" OR \"bank seized\" OR \"FDIC takes over\" OR \"regulators closed\" bank OR \"withdrawals suspended\" OR \"withdrawal limits\" OR \"deposit freeze\""
+    },
+    {
+      "name": "Geopolitical escalation",
+      "category": "nuclear",
+      "thresholds": [
+        6,
+        12,
+        20
+      ],
+      "max_sev": 2,
+      "query": "Taiwan blockade OR invasion OR \"declaration of war\" OR \"military mobilization\" OR \"Article 5\" OR \"strike on Iran\" OR \"ballistic missile launch\""
+    },
+    {
+      "name": "Infrastructure sabotage",
+      "category": "security",
+      "thresholds": [
+        2,
+        4,
+        8
+      ],
+      "query": "\"substation attack\" OR \"substation sabotage\" OR \"cable cut\" OR \"fiber cut\" OR \"rail sabotage\" OR \"pipeline sabotage\" OR \"drone sightings\" airport"
+    },
+    {
+      "name": "Official denials of cyberattack",
+      "category": "cyber",
+      "thresholds": [],
+      "max_sev": 0,
+      "query": "\"not a cyberattack\" OR \"no evidence of a cyberattack\" OR \"not a cyber attack\" OR \"no indication of malicious\" OR \"not malicious\""
+    },
+    {
+      "name": "Debunked / fake claims",
+      "require_all": [
+        "\\b(fake|hoax|AI-generated|debunk\\w*|misinformation|disinformation|false claims?|doctored)\\b",
+        "\\b(explosion|attack|outage|bank run|grounded|blackout|shooting|missile|bomb\\w*|cyber\\w*)\\b"
+      ],
+      "category": "security",
+      "thresholds": [],
+      "max_sev": 0,
+      "query": "fake OR hoax OR \"AI-generated\" OR debunked OR misinformation explosion OR attack OR outage OR \"bank run\" OR grounded"
+    }
+  ],
+  "social_keywords": {
+    "aviation": "ground stop|grounded|all flights|air traffic|faa ",
+    "telecom": "\\b911\\b|no service|cell service|can'?t call|phone outage|nationwide outage",
+    "power": "power outage|blackout|power grid|no power|power'?s out|grid down",
+    "cyber": "cyber ?attack|ransomware|ddos|hacked",
+    "internet": "internet (is )?down|cloudflare|aws outage|major outage",
+    "security": "terror|explosion|bombing|gunfire|coordinated attack",
+    "nuclear": "\\bemp\\b|electromagnetic pulse|nuclear|missile|radiation|defcon",
+    "finance": "bank run|banks closed|bank holiday|market-wide|atms? (are )?down|bank outage|(bank|chase|wells fargo|bank of america|citi|capital one|pnc|us bank|truist|venmo|paypal|cash app)( app| website| online banking)? (is |are )?(down|not working)|zelle|direct deposit|bank failure|withdrawal limit|deposit freeze",
+    "elite": "private jets?|billionaires? (fleeing|leaving)|bunker"
+  },
+  "reddit_subs": [
+    "news",
+    "worldnews",
+    "breakingnews",
+    "sysadmin",
+    "aviation",
+    "CredibleDefense"
+  ],
+  "mastodon_tags": {
+    "outage": "internet",
+    "blackout": "power",
+    "poweroutage": "power",
+    "cyberattack": "cyber",
+    "emp": "nuclear",
+    "911": "telecom",
+    "explosion": "security",
+    "groundstop": "aviation"
+  },
+  "bluesky_queries": [
+    {
+      "q": "\"power outage\"",
+      "category": "power"
+    },
+    {
+      "q": "blackout",
+      "category": "power"
+    },
+    {
+      "q": "\"911\" outage",
+      "category": "telecom"
+    },
+    {
+      "q": "\"ground stop\"",
+      "category": "aviation"
+    },
+    {
+      "q": "cyberattack",
+      "category": "cyber"
+    },
+    {
+      "q": "explosion",
+      "category": "security"
+    },
+    {
+      "q": "\"internet down\"",
+      "category": "internet"
+    },
+    {
+      "q": "\"electromagnetic pulse\"",
+      "category": "nuclear"
+    },
+    {
+      "q": "\"bank outage\"",
+      "category": "finance"
+    },
+    {
+      "q": "\"bank run\"",
+      "category": "finance"
+    }
+  ]
+}

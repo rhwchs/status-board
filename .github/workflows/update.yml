@@ -1,0 +1,52 @@
+name: Update the page
+on:
+  schedule:
+    - cron: "4,19,34,49 * * * *"   # about every 15 minutes, at odd minutes (GitHub delays or skips jobs at :00, :15, :30 and :45 when it is busy)
+  workflow_dispatch:             # lets you run it by hand from the Actions tab
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+concurrency:
+  group: pages
+  cancel-in-progress: false
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Remember what a normal day looks like
+        uses: actions/cache@v4
+        with:
+          path: data/history.json
+          key: sb-history-${{ github.run_id }}
+          restore-keys: sb-history-
+      - name: Check every source and build the page
+        env:
+          EIA_API_KEY: ${{ secrets.EIA_API_KEY }}
+          NEWS_GAP: "9"             # seconds between news searches; shared servers get throttled by Google if they go faster
+        run: |
+          mkdir -p site data
+          python3 snapshot.py --no-open --out site/index.html > /dev/null   # the summary stays out of the public log
+      - name: Put the access code on the page
+        env:
+          ACCESS_CODE: ${{ secrets.ACCESS_CODE }}
+        run: |
+          if [ -z "$ACCESS_CODE" ]; then echo "No ACCESS_CODE secret is set, so I will not publish the page publicly."; exit 1; fi
+          python3 lock_page.py site/index.html
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
