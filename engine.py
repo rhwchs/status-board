@@ -21,6 +21,12 @@ from store import Store
 from story import tell
 
 LEVELS = {0: "NORMAL", 1: "WATCH", 2: "ELEVATED", 3: "SUSPECTED ATTACK"}
+
+
+def _step_name(level):
+    """The page's step name for an engine level, for the change log (step 5 is never inferred here)."""
+    from story import STEPS
+    return f"Level {level + 1} {STEPS[level][0]}"
 OFFICIAL = ("gov", "private")
 
 
@@ -75,6 +81,8 @@ class Monitor:
     # ------------------------------------------------------------ scheduling
     def run_forever(self):
         pool = ThreadPoolExecutor(max_workers=8)
+        news_pool = ThreadPoolExecutor(max_workers=1)         # news searches go one at a time so a wait never blocks the other sources
+        os.environ.setdefault("NEWS_GAP", "12")          # seconds between Google searches (14 searches x 12 s fits inside 5 minutes)
         now = time.time()
         due, n_news = {}, 0
         for i, c in enumerate(self.collectors):
@@ -90,7 +98,7 @@ class Monitor:
                 if c.name not in running and due[c.name] <= now:
                     running.add(c.name)
                     due[c.name] = now + c.interval + random.uniform(0, 5)
-                    pool.submit(self._run, c, running)
+                    (news_pool if c.kind == "news" else pool).submit(self._run, c, running)
             if now - last_save > 300:
                 self.store.save()
                 last_save = now
@@ -174,12 +182,19 @@ class Monitor:
             down = []                 # every source currently failing, whether or not it ever worked
             canary_ok = True
             world, all_sigs, recent_fail = [], [], 0
+            limited = []              # sources that are rate-limited or blocked: reported, but not a sign that the world went dark
             for c in self.collectors:
                 st = self.state[c.name]
                 if c.kind == "system":
                     canary_ok = st.ok is not False
                     continue
                 if st.ok is None:
+                    continue
+                if st.ok is False and st.error.startswith(("RuntimeError: Throttled", "RuntimeError: Limited")):
+                    limited.append(c.name)
+                    if st.last_ok and now - st.last_ok <= max(3 * c.interval, 900):
+                        for s in st.signals:
+                            (world if s.category == "world" else all_sigs).append(s)
                     continue
                 if st.ok is False:
                     down.append(c.name)
@@ -197,7 +212,7 @@ class Monitor:
                 all_sigs.append(Signal(
                     "internet", 1, f"{fail_n} of {ok_n + fail_n} sources cannot be reached even though "
                     "your own internet works", key="sys:blind", kind="system", source="Monitor self-check"))
-            total = sum(1 for c in self.collectors if c.kind != "system" and self.state[c.name].ok is not None)
+            total = sum(1 for c in self.collectors if c.kind != "system" and self.state[c.name].ok is not None and c.name not in limited)
             blind = (not canary_ok) or (total >= 5 and ok_n < total / 2)
             # Many sources that WERE working all failing within minutes while our own connection is fine is itself a warning
             # (it is what a big outage or an attack on the net would look like): keep alarmed instead of going quiet.
@@ -218,6 +233,7 @@ class Monitor:
                      for k in keys}
             main = built["all"]
             self.analysis = dict(main["analysis"])
+            self.analysis["limited"] = limited
             self.analysis["views"] = {k: {"label": v["analysis"]["label"], "level": v["analysis"]["level"],
                                           "score": v["analysis"]["score"], "story": v["analysis"]["story"],
                                           "rules": v["analysis"]["assessment"].get("rules", [])}
@@ -352,7 +368,7 @@ class Monitor:
         for k in [k for k in self._sig_since if k not in live_keys]:
             del self._sig_since[k]
         if level != self.last_level:
-            self._log(f"Overall alert level changed: {LEVELS[self.last_level]} → {LEVELS[level]}", level)
+            self._log(f"Overall level changed: {_step_name(self.last_level)} → {_step_name(level)}", level)
             self.last_level = level
         min_level = n.get("min_level", 2)
         if warming:

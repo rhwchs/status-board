@@ -8,13 +8,16 @@ Severity scale used everywhere:
   0 = status / context only      1 = watch
   2 = elevated                   3 = critical
 """
+import copy
 import html
 import json
 import os
+import random
 import re
 import socket
 import ssl
 import subprocess
+import threading
 import time
 import urllib.error
 import urllib.parse
@@ -610,7 +613,42 @@ def cloud_providers(ctx):
 
 # ------------------------------------------------------------------------ news
 
-_GOOGLE_BACKOFF = {"until": 0}
+_GOOGLE_BACKOFF = {"until": 0, "n": 0}      # n = how many throttles in a row (the wait doubles each time)
+_GOOGLE_GATE = {"lock": threading.Lock(), "last": 0.0}
+_NEWS_CACHE = {}                            # query -> (time, CollectResult) of the last good Google result
+NEWS_CACHE_MAX_AGE = 1200                   # seconds a last-good result may stand in while Google is limiting us
+
+
+def _google_gap():
+    return float(os.environ.get("NEWS_GAP", "1.5"))
+
+
+def _google_wait():
+    """One Google News request at a time, at least a gap apart. Fourteen searches fired together is what got us throttled."""
+    with _GOOGLE_GATE["lock"]:
+        wait = _GOOGLE_GATE["last"] + _google_gap() * random.uniform(0.9, 1.2) - time.time()
+        if wait > 0:
+            time.sleep(wait)
+        _GOOGLE_GATE["last"] = time.time()
+
+
+def _google_throttled(code=None):
+    n = _GOOGLE_BACKOFF["n"] = _GOOGLE_BACKOFF.get("n", 0) + 1
+    _GOOGLE_BACKOFF["until"] = time.time() + min(300 * 2 ** (n - 1), 1800)    # 5, 10, 20, then 30 minutes
+
+
+def _stand_in(query):
+    """The last good result for this query if it is recent enough, marked as such; else None."""
+    hit = _NEWS_CACHE.get(query)
+    if not hit or time.time() - hit[0] > NEWS_CACHE_MAX_AGE:
+        return None
+    age = int((time.time() - hit[0]) / 60)
+    sigs = []
+    for sg in hit[1].signals:
+        sg = copy.copy(sg)
+        sg.detail = (sg.detail + " · " if sg.detail else "") + f"last good check {age} min ago (Google is limiting requests)"
+        sigs.append(sg)
+    return CollectResult(sigs, dict(hit[1].metrics, stale_min=age))
 
 
 # Headlines that are not breaking news. Google matches words ANYWHERE in the story, so entertainment and
@@ -639,11 +677,13 @@ def make_news(q):
         items, used, err1 = None, "Google", None
         if time.time() >= _GOOGLE_BACKOFF["until"]:
             try:
+                _google_wait()
                 items = parse_feed(fetch(g, browser=True))
+                _GOOGLE_BACKOFF["n"] = 0
             except Exception as e1:
                 err1 = e1
                 if isinstance(e1, urllib.error.HTTPError) and e1.code == 429:
-                    _GOOGLE_BACKOFF["until"] = time.time() + 1200   # throttled: stop asking for 20 min
+                    _google_throttled()
         else:
             err1 = "throttled, backing off"
         if items is None:
@@ -652,7 +692,10 @@ def make_news(q):
                 used = "Bing"
                 link = "https://www.bing.com/news/search?q=" + urllib.parse.quote(query)
             except Exception as e2:
-                raise RuntimeError(f"Google: {err1}; Bing: {e2}")
+                held = _stand_in(query)
+                if held:
+                    return held
+                raise RuntimeError(f"{'Throttled: ' if _GOOGLE_BACKOFF['until'] > time.time() else ''}Google: {err1}; Bing: {e2}")
         now = time.time()
         recent = [i for i in items if i["time"] is None or now - i["time"] < 7200]
         pubs = set()
@@ -699,7 +742,10 @@ def make_news(q):
         if used == "Bing" and raw_n == 0:
             # Bing's index lags by hours, so an empty Bing result proves nothing. Report the source as
             # failed (keeps the previous alert alive) rather than a false "no coverage".
-            raise RuntimeError(f"Google News unavailable ({err1}); Bing fallback cannot confirm last-hour coverage")
+            held = _stand_in(query)
+            if held:
+                return held
+            raise RuntimeError(f"Throttled: Google News unavailable ({err1}); Bing fallback cannot confirm last-hour coverage")
         key = "news:" + q["name"]
         skey = "newsw:" + q["name"]      # trust-weighted independent reports: its own history (old counts used other units)
         rate = ctx.store.rate_severity(skey, n_eff, q.get("thresholds"), ctx.cfg.get("social_min_count", 5))
@@ -707,7 +753,10 @@ def make_news(q):
         sev = min(rate.sev, q.get("max_sev", 3))
         ignored = unrelated + followups
         if n == 0:
-            return CollectResult(world_sigs, {"outlets_1h": 0, "ignored": ignored, "overseas_1h": len(abroad)})
+            out = CollectResult(world_sigs, {"outlets_1h": 0, "ignored": ignored, "overseas_1h": len(abroad)})
+            if used == "Google":
+                _NEWS_CACHE[query] = (time.time(), out)
+            return out
         base = (f"usually about {rate.baseline:g}" if rate.baseline is not None
                 else f"still learning what is normal for this ({rate.n} of 8 readings)")
         base += (f" · {info['clusters']} independent report(s) from {n} outlet(s), {info['t1']} from top-tier outlets"
@@ -718,11 +767,14 @@ def make_news(q):
         if used == "Bing":
             base += " · via Bing (Google is limiting requests)"
         links = [{"title": f"{short(i['title'], 100)} — {i['pub']}", "url": i["link"]} for i in recent[:6]]
-        return CollectResult([Signal(q["category"], sev, f"News: {q['name']} — {info['clusters']} independent reports from {n} outlets in the last hour",
-                                     link, base, key=key, links=links, meta=info,
-                                     states=geo.states_for([i["title"] for i in recent]))] + world_sigs,
-                             {"outlets_1h": n, "independent_1h": info["clusters"], "top_tier_1h": info["t1"], "ignored": ignored,
-                              "overseas_1h": len(abroad)})
+        out = CollectResult([Signal(q["category"], sev, f"News: {q['name']} — {info['clusters']} independent reports from {n} outlets in the last hour",
+                                    link, base, key=key, links=links, meta=info,
+                                    states=geo.states_for([i["title"] for i in recent]))] + world_sigs,
+                            {"outlets_1h": n, "independent_1h": info["clusters"], "top_tier_1h": info["t1"], "ignored": ignored,
+                             "overseas_1h": len(abroad)})
+        if used == "Google":
+            _NEWS_CACHE[query] = (time.time(), out)
+        return out
     return fn
 
 
@@ -772,7 +824,7 @@ def make_reddit(cfg):
                         samples.setdefault(cat, []).append(
                             {"title": f"r/{sub}: {short(it['title'], 110)}", "url": it["link"]})
         if ok == 0:
-            raise RuntimeError("no subreddit feed reachable")
+            raise RuntimeError("Limited: Reddit refuses requests from this connection (no subreddit feed reachable)")
         sigs = _emit_social(ctx, "Reddit", "https://www.reddit.com/", counts, samples, list(kw),
                             {c: c for c in kw})
         return CollectResult(sigs, {"subs_ok": f"{ok}/{len(cfg['reddit_subs'])}", "posts_scanned_1h": scanned})

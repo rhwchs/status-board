@@ -92,7 +92,7 @@
   .grid small { display:block; color:var(--dim); }
   .plain { font-size:16px; margin:2px 0 4px; }
   .verdict { font-weight:700; margin:8px 0 4px; }
-  details.hyp > summary { cursor:pointer; list-style:none; display:grid; grid-template-columns:1fr 70px 34px; gap:10px;
+  details.hyp > summary { cursor:pointer; list-style:none; display:grid; grid-template-columns:1fr 90px; gap:10px;
                           align-items:center; padding:7px 0; border-top:1px solid var(--line); }
   details.hyp > summary::-webkit-details-marker { display:none; }
   details.hyp ul { margin:0 0 8px; padding-left:18px; font-size:13px; }
@@ -165,7 +165,7 @@
   <div class="banner" id="banner"><div class="lvl">Connecting…</div></div>
   <div id="near"></div>
 
-  <h2>The details (whole US)</h2>
+  <h2 id="detailsh">What might be causing this</h2>
   <div id="assess"></div>
 
   <h2>What I'm watching</h2>
@@ -209,7 +209,7 @@ const PLAIN = {
   'NORMAL': 'Nothing unusual right now.',
   'WATCH': "Something unusual, but it is not confirmed or not widespread. Keep an eye on it.",
   'ELEVATED': 'A real, confirmed problem affecting more than one area. Check the linked sources.',
-  'SUSPECTED ATTACK': 'The pattern fits a deliberate attack better than any accident. Check the sources now.',
+  'SUSPECTED ATTACK': 'A serious, spreading event is likely under way. Check the sources now.',
   'NO DATA': "I can't see enough to judge. This is NOT an all-clear."
 };
 const CATLVL = {0:'NORMAL',1:'WATCH',2:'ELEVATED',3:'CRITICAL'};
@@ -236,26 +236,48 @@ function sigHtml(s) {
     ${sub ? `<ul class="links">${sub}</ul>` : ''}</div>`;
 }
 
-function renderAssess(x, sc) {
-  const el = document.getElementById('assess');
-  if (!x) { el.innerHTML = ''; return; }
-  const maxS = Math.max(6, ...x.hypotheses.map(h => h.score));
-  const rows = x.hypotheses.map(h => `<details class="hyp"><summary>
-      <span>${esc(h.label)}</span><span class="bar"><i style="width:${Math.round(100 * h.score / maxS)}%"></i></span><span class="hs">${h.score}</span></summary>
-      <ul>${h.evidence.length ? h.evidence.map(e => `<li><b>${e.pts > 0 ? '+' : ''}${e.pts}</b> ${esc(e.why)}</li>`).join('')
-                              : '<li class="meta">No supporting evidence.</li>'}</ul></details>`).join('');
-  const cl = x.clusters.length ? x.clusters.map(c => esc(c.label) + (c.primary ? '' : ' (not confirmed by an official source)')).join(' · ') : 'none';
-  const ex = x.explained.length ? x.explained.map(e => `${esc(e.domain)} — ${esc(e.why)}`).join('; ') : '';
+// A plain "a", "a and b", "a, b and c" list.
+function andList(xs) { return xs.length < 2 ? xs.join('') : xs.slice(0, -1).join(', ') + ' and ' + xs[xs.length - 1]; }
+const lc1 = t => t ? t.charAt(0).toLowerCase() + t.slice(1) : t;
+
+// Possible causes. Only shown at step 3 (Concern) and above: below that there is nothing worth explaining.
+// Hedged on purpose: early explanations often change. "Attack" only appears as the name of one possible cause,
+// and only when that cause has some evidence behind it.
+function renderAssess(x, sc, step) {
+  const el = document.getElementById('assess'), h = document.getElementById('detailsh');
+  const show = x && step !== null && step !== undefined && step >= 3;
+  h.style.display = show ? '' : 'none';
+  if (!show) { el.innerHTML = ''; return; }
+  const hyp = x.hypotheses.filter(k => k.score > 0);
+  const top = hyp[0], nxt = hyp[1];
+  let lead;
+  if (!top || top.score < 2)
+    lead = "It is too early to say what is causing this. There isn't enough evidence yet pointing to any one explanation.";
+  else if (nxt && top.score - nxt.score < 2)
+    lead = `This may be ${lc1(top.label)} or ${lc1(nxt.label)}. So far the evidence doesn't clearly favour either one.`;
+  else
+    lead = `So far this looks most like ${lc1(top.label)}, but it is too early to be sure.`;
+  lead += ' Early explanations often change, so treat this as a best guess, not a finding.';
+  const life = x.clusters.map(c => c.label);
+  const extra = [];
+  if (x.simultaneous && life.length >= 2)
+    extra.push(`Problems in ${andList(life.map(lc1))} started at nearly the same time, so more than one explanation is still being kept in mind.`);
+  if (x.explained.length)
+    extra.push('Some of it looks explained by something else: ' + x.explained.map(e => `${lc1(e.domain)} (${e.why})`).join('; ') + '.');
+  const maxS = Math.max(6, ...hyp.map(k => k.score));
+  const rows = hyp.map(k => `<details class="hyp"><summary>
+      <span>${esc(k.label)}</span><span class="bar"><i style="width:${Math.round(100 * k.score / maxS)}%"></i></span></summary>
+      <ul>${k.evidence.length ? k.evidence.map(e => `<li>${esc(e.why)}</li>`).join('')
+                              : '<li class="meta">Nothing specific points to this yet.</li>'}</ul></details>`).join('');
   const verify = x.verify.map(v => `<li>${link(v.url, v.title)}</li>`).join('');
-  el.innerHTML = `<details class="panel"><summary style="cursor:pointer;padding:8px 0;font-weight:600">Is this an attack? My full reasoning (tap to open)</summary>
-    <div class="verdict">${esc(x.verdict)}</div>
-    <div class="meta" style="margin:0 0 6px">Chance this is an attack: <b>${esc(x.plausibility)}</b> · alert stance: ${esc(x.posture)} ·
-      separate problems right now: ${cl}${x.simultaneous ? ' · they started at nearly the same time' : ''}</div>
-    ${ex ? `<div class="meta" style="margin:0 0 6px">These look explained by something else: ${ex}</div>` : ''}
-    <div class="meta" style="margin:8px 0 2px">Possible explanations. A longer bar means a better fit. Tap one to see why:</div>
-    <div>${rows}</div>
-    ${sc && sc.value !== null && sc.value !== undefined ? `<div class="meta" style="margin-top:8px">Severity score: <b>${sc.value}</b>/100</div>${scoreInfo(sc)}` : ''}
-    ${verify && x.level >= 1 ? `<div class="meta" style="margin-top:8px">Check these yourself:</div><ul class="links">${verify}</ul>` : ''}</details>`;
+  const score = sc && sc.value !== null && sc.value !== undefined
+    ? `<div class="meta" style="margin-top:10px">Severity score: <b>${sc.value}</b>/100</div>${scoreInfo(sc)}` : '';
+  el.innerHTML = `<div class="panel">
+    <div class="verdict">${esc(lead)}</div>
+    ${extra.map(t => `<div class="meta" style="margin:0 0 6px">${esc(t)}</div>`).join('')}
+    ${rows ? `<div class="meta" style="margin:8px 0 2px">Possible explanations. A longer bar means a better fit so far. Tap one to see why:</div><div>${rows}</div>` : ''}
+    ${verify ? `<div class="meta" style="margin-top:8px">Check these yourself:</div><ul class="links">${verify}</ul>` : ''}
+    ${score}</div>`;
 }
 
 function gaugeHtml(sc) {
@@ -268,7 +290,7 @@ function gaugeHtml(sc) {
   return `<div class="gauge">
     <div class="big">${sc.value} <small>/ 100 right now</small></div>
     <div class="bar">${u ? `<div class="nm" style="left:${u.low}%;width:${Math.max(1, u.high - u.low)}%"></div>` : ''}<div class="mk" style="left:${sc.value}%"></div></div>
-    <div class="scale"><span style="width:10%">0</span><span style="width:20%">10 watch</span><span style="width:30%">30 serious</span><span style="width:40%">60+ attack pattern</span></div>
+    <div class="scale"><span style="width:10%">0</span><span style="width:20%">10 watch</span><span style="width:30%">30 serious</span><span style="width:40%">60+ severe</span></div>
     <div class="meta">${normal}${pk !== null && pk !== undefined ? ` Highest in the last 24 hours: <b>${pk}</b>.` : ''}</div>
     <details><summary>How is this number made?</summary>
       <div style="margin-top:6px">0 means nothing unusual anywhere. It is a severity gauge, not a probability. Official confirmation, essential services (power, phones, internet, banks, flights), several problems at once and problems starting together push it up. Headlines alone, social media alone and problems with a harmless explanation count for little.</div>
@@ -339,7 +361,7 @@ function scoreInfo(sc) {
   const parts = (sc.parts || []).map(p => `<li>+${p.pts} ${esc(p.why)}</li>`).join('');
   return `<details><summary>How is the score made?</summary>
     <div class="meta" style="margin-top:6px">${normal}${pk !== null && pk !== undefined ? ` Highest in the last 24 hours: <b>${pk}</b>.` : ''}
-    It is a severity gauge, not a probability: 0\u20139 normal, 10\u201329 watch, 30\u201359 elevated, 60+ attack pattern.</div>
+    It is a severity gauge, not a probability: 0\u20139 normal, 10\u201329 watch, 30\u201359 elevated, 60+ severe.</div>
     ${parts ? `<ul style="margin:6px 0 0;padding-left:20px">${parts}</ul>` : '<div class="meta" style="margin-top:6px">Nothing is adding to it right now.</div>'}</details>`;
 }
 
@@ -384,8 +406,9 @@ function render(d) {
   // One sentence. For Normal/Watch (nothing to do) the sentence carries a tappable chip for each thing going on.
   let desc;
   if (step === 2 && events.length) {
-    desc = (confirmedBy ? 'Something unusual is happening: ' : 'Something unusual is happening, but no official source has confirmed it: ')
-         + events.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`).join(' ') + '.';
+    const chips = events.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`);
+    desc = 'Something unusual is happening involving ' + andList(chips)
+         + (confirmedBy ? '.' : ', but no official source has confirmed it.');
   } else if (step === 1) {
     const ok = reasons.find(r => r.tag === 'Checked' && r.sources.length);
     desc = esc(scl.line) + (ok ? ` <button class="evchip" data-k="${esc(ok.text)}" aria-expanded="false">${esc(ok.text)}</button>` : '');
@@ -429,8 +452,8 @@ function render(d) {
       <div class="nm">Near you · ${esc(ny.name)}</div><div class="nh">${esc(ny.headline)}</div>
       ${ny.lines.length ? '<ul>' + ny.lines.map(l => `<li>${link(l.url, l.text)}</li>`).join('') + '</ul>' : ''}</div>` : '';
   if (HOSTED && !ny) browserNear();
-  document.title = (lvl >= 2 ? '⚠ ' : '') + 'Status ' + a.label;
-  renderAssess(a.assessment, sc);
+  document.title = (step >= 3 ? '⚠ ' : '') + 'Status ' + (step ? `Level ${step} ${scl.name}` : scl.name);
+  renderAssess(a.assessment, sc, step);
 
   const cats = Object.entries(a.categories).filter(([id]) => id !== 'local').sort((x, y) => y[1].level - x[1].level || x[1].label.localeCompare(y[1].label));
   const openIds = new Set([...document.querySelectorAll('details.cat[open]')].map(e => e.dataset.id));

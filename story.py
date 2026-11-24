@@ -68,7 +68,7 @@ STATUS_LINE = {
     "NORMAL": "Nothing unusual.",
     "WATCH": "Something unusual, not confirmed.",
     "ELEVATED": "A real problem in more than one area.",
-    "SUSPECTED ATTACK": "The pattern fits a deliberate attack.",
+    "SUSPECTED ATTACK": "A serious, spreading event is likely under way.",
     "NO DATA": "Can't see well enough. Not an all-clear.",
 }
 POSTURE = {
@@ -108,12 +108,13 @@ def _cause(res):
     """Cause is a label, not the trigger: attack, accident, nature, or a mix. Shown when there is an event to explain."""
     hyp = res["hypotheses"]
     if not hyp or hyp[0]["score"] < 2:
-        return "Cause unclear so far."
+        return "It is too early to say what is causing this."
     top = hyp[0]
     nxt = hyp[1] if len(hyp) > 1 and hyp[1]["score"] >= 2 else None
     if nxt and top["score"] - nxt["score"] < 2:
-        return f"Cause unclear: {CAUSE[top['key']]} or {CAUSE[nxt['key']]}."
-    return f"Most likely cause: {CAUSE[top['key']]}." + (f" Possibly also {CAUSE[nxt['key']]}." if nxt else "")
+        return f"The cause isn't clear yet: it may be {CAUSE[top['key']]} or {CAUSE[nxt['key']]}."
+    return f"So far this looks most like {CAUSE[top['key']]}, but it is too early to be sure." + (
+        f" It may also be {CAUSE[nxt['key']]}." if nxt else "")
 
 
 def _scale(label, cats):
