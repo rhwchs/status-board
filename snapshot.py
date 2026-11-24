@@ -51,6 +51,21 @@ def ask_location(data):
     return None if loc.get("skipped") else loc
 
 
+def render_page(snap, out, refresh=None):
+    """Write a self-contained copy of the dashboard with the data baked in. refresh = seconds, to reload the page itself."""
+    with open(os.path.join(HERE, "static", "index.html"), encoding="utf-8") as f:
+        page = f.read()
+    blob = json.dumps(snap).replace("</", "<\\/")      # keep the data from ever closing the script tag
+    head = f"<script>window.__SNAPSHOT__ = {blob};</script>\n"
+    if refresh:
+        head = f'<meta http-equiv="refresh" content="{int(refresh)}">\n' + head
+    page = page.replace("</head>", head + "</head>", 1)
+    tmp = out + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(page)
+    os.replace(tmp, out)
+
+
 def main():
     ap = argparse.ArgumentParser(description="Check every source once and save a snapshot page.")
     ap.add_argument("--config", default=os.path.join(HERE, "config.json"))
@@ -61,6 +76,7 @@ def main():
     with open(args.config) as f:
         cfg = json.load(f)
     cfg.setdefault("notify", {}).update({"macos": False, "ntfy_topic": ""})   # a snapshot never sends alerts
+    cfg.setdefault("raw_log", {})["enabled"] = False                        # the raw record is for the always-on monitor
     data = os.path.join(HERE, "data")
     os.makedirs(data, exist_ok=True)
     if not cfg.get("local"):
@@ -76,12 +92,7 @@ def main():
     snap = mon.snapshot()
     a = snap["analysis"]
 
-    with open(os.path.join(HERE, "static", "index.html"), encoding="utf-8") as f:
-        page = f.read()
-    blob = json.dumps(snap).replace("</", "<\\/")      # keep the data from ever closing the script tag
-    page = page.replace("</head>", f"<script>window.__SNAPSHOT__ = {blob};</script>\n</head>", 1)
-    with open(args.out, "w", encoding="utf-8") as f:
-        f.write(page)
+    render_page(snap, args.out)
 
     mon.store.save()
 

@@ -11,6 +11,10 @@
     "ntfy_topic": ""
   },
   "social_min_count": 5,
+  "raw_log": {
+    "enabled": true,
+    "keep_days": 14
+  },
   "assessment": {
     "posture": "normal",
     "heightened_multiplier": 1.5,
@@ -25,16 +29,18 @@
     "nws": 90,
     "swpc": 300,
     "usgs": 120,
-    "cisa": 900,
+    "cisa": 300,
     "sans": 300,
     "ioda": 300,
     "status_pages": 180,
     "cloud": 180,
     "adsb": 1200,
-    "reddit": 300,
+    "reddit": 1800,
     "mastodon": 300,
+    "markets": 300,
     "bluesky": 300,
-    "news": 600,
+    "news": 300,
+    "drudge": 300,
     "canary": 45
   },
   "status_pages": [
@@ -88,7 +94,7 @@
         6,
         12
       ],
-      "query": "\"nationwide ground stop\" OR \"all flights grounded\" OR \"FAA grounds\" OR \"air traffic control\" outage OR \"airspace closed\""
+      "query": "\"nationwide ground stop\" OR \"all flights grounded\" OR \"FAA grounds\" OR (\"air traffic control\" (outage OR failure OR \"ground stop\")) OR \"airspace closed\""
     },
     {
       "name": "911 / cell / phone outage",
@@ -186,6 +192,7 @@
     {
       "name": "Geopolitical escalation",
       "category": "nuclear",
+      "scope": "world",
       "thresholds": [
         6,
         12,
@@ -233,6 +240,21 @@
     "nuclear": "\\bemp\\b|electromagnetic pulse|nuclear|missile|radiation|defcon",
     "finance": "bank run|banks closed|bank holiday|market-wide|atms? (are )?down|bank outage|(bank|chase|wells fargo|bank of america|citi|capital one|pnc|us bank|truist|venmo|paypal|cash app)( app| website| online banking)? (is |are )?(down|not working)|zelle|direct deposit|bank failure|withdrawal limit|deposit freeze",
     "elite": "private jets?|billionaires? (fleeing|leaving)|bunker"
+  },
+  "drudge": {
+    "enabled": true,
+    "min_headlines": 3,
+    "min_trusted": 2,
+    "keywords": {
+      "aviation": "ground stop|grounded|all flights|air traffic|\\bfaa\\b|airspace|flights? (halted|cancell?ed)",
+      "telecom": "\\b911\\b|cell (service|outage)|phone outage|nationwide outage|network outage",
+      "power": "blackout|power outage|power grid|grid (down|failure|attack)|no power|rolling blackout",
+      "cyber": "cyber ?attack|ransomware|hack(ed|ers?)\\b|ddos|data breach|wiper",
+      "internet": "internet (outage|down)|cloudflare|aws outage|major outage",
+      "security": "terror|explosion|bombing|gunfire|mass shooting|coordinated attack|sabotage|assassinat",
+      "nuclear": "nuclear|\\bnukes?\\b|missile|\\bemp\\b|radiation|defcon|icbm|blockade|invasion|declares? war",
+      "finance": "bank run|banks? (closed|collapse|fail)|market (crash|halt)|circuit breaker|atms? down|bank failure"
+    }
   },
   "reddit_subs": [
     "news",

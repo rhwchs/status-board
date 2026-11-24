@@ -4,6 +4,8 @@ The dashboard leads with this. Everything else (areas, scores, sources) is detai
 Rule: every sentence is built from the real analysis, never from a template that ignores the data, and any
 line about a specific area links to the best source for it so you can go check.
 """
+import re
+
 from collectors import CATEGORIES
 
 NOUN = {
@@ -61,6 +63,194 @@ NO_FEED = {
 }
 
 
+# The three things the page now leads with: status, a suggested posture, and punchy reasons.
+STATUS_LINE = {
+    "NORMAL": "Nothing unusual.",
+    "WATCH": "Something unusual, not confirmed.",
+    "ELEVATED": "A real problem in more than one area.",
+    "SUSPECTED ATTACK": "The pattern fits a deliberate attack.",
+    "NO DATA": "Can't see well enough. Not an all-clear.",
+}
+POSTURE = {
+    "NORMAL": ("Normal life", "Nothing to do."),
+    "WATCH": ("Stay aware", "Nothing to do. This page will say so if that changes."),
+    "ELEVATED": ("Get ready", "Stage your plan: fuel, cash, comms, and where your people are."),
+    "SUSPECTED ATTACK": ("Act now", "Run your plan. Reach your people, follow official alerts, be ready to move."),
+    "NO DATA": ("Check for yourself", "The monitor is partly blind. Don't read a quiet screen as safe."),
+}
+AREA = {
+    "aviation": "Flights", "telecom": "Phones & 911", "power": "Power", "internet": "Internet", "finance": "Banks",
+    "markets": "Markets", "cyber": "Hacking", "security": "Violence", "nuclear": "Nuclear / missile",
+    "emergency": "Emergency alerts", "space": "Solar storm", "natural": "Natural events",
+}
+HYP_SHORT = {"accident": "an accident or equipment failure", "natural": "weather or a solar storm",
+             "hoax": "a false alarm or rumor", "cyber": "a cyber attack", "physical": "a physical attack",
+             "strategic": "a missile, nuclear or EMP attack"}
+_DIR_ORDER = {"up": 0, "soft": 1, "down": 2, "warn": 3}
+
+# The five-step scale shown at the top right. Internally the engine still has four levels (and logs them by their old
+# names); the page shows these. Step 5 is never inferred: it needs a government source to say so itself.
+STEPS = [
+    ("Baseline", "Nothing unusual."),
+    ("Watch", "Something unusual, not confirmed."),
+    ("Concern", "A real problem in more than one area; the cause isn't clear yet."),
+    ("Likely event", "A serious, spreading event is likely under way."),
+    ("Confirmed", "Officials confirm a major threat or hazard."),
+]
+_STEP_OF = {"NORMAL": 1, "WATCH": 2, "ELEVATED": 3, "SUSPECTED ATTACK": 4}
+
+
+CAUSE = {"accident": "equipment or software failure", "natural": "weather or a natural hazard", "hoax": "a false alarm",
+         "cyber": "a cyber attack", "physical": "a physical attack or sabotage", "strategic": "a missile or nuclear threat"}
+
+
+def _cause(res):
+    """Cause is a label, not the trigger: attack, accident, nature, or a mix. Shown when there is an event to explain."""
+    hyp = res["hypotheses"]
+    if not hyp or hyp[0]["score"] < 2:
+        return "Cause unclear so far."
+    top = hyp[0]
+    nxt = hyp[1] if len(hyp) > 1 and hyp[1]["score"] >= 2 else None
+    if nxt and top["score"] - nxt["score"] < 2:
+        return f"Cause unclear: {CAUSE[top['key']]} or {CAUSE[nxt['key']]}."
+    return f"Most likely cause: {CAUSE[top['key']]}." + (f" Possibly also {CAUSE[nxt['key']]}." if nxt else "")
+
+
+def _scale(label, cats):
+    if label == "NO DATA":
+        return {"step": None, "name": "No data", "line": "Can't see well enough. This is not an all-clear.",
+                "names": [n for n, _ in STEPS]}
+    step = _STEP_OF[label]
+    if step == 4 and any(s.kind == "gov" and ("official-strategic" in (s.tags or []) and s.severity >= 2
+                                              or "official-hazard" in (s.tags or []) and s.severity >= 3)
+                         for c in cats.values() for s in c["signals"]):
+        step = 5          # a government source itself reports a nuclear / civil-danger threat, or an imminent major hazard
+    return {"step": step, "name": STEPS[step - 1][0], "line": STEPS[step - 1][1], "names": [n for n, _ in STEPS]}
+
+
+def _short(text, n=72):
+    text = " ".join((text or "").split())
+    if len(text) <= n:
+        return text
+    return text[:n].rsplit(" ", 1)[0].rstrip(",;:- ") + "…"
+
+
+def _headline(s):
+    """A punchy phrase for one signal (the full title stays in the expanded sources)."""
+    meta = getattr(s, "meta", None) or {}
+    if s.source.startswith("Drudge"):
+        n = re.match(r"Drudge Report: (\d+)", s.title)
+        return f"Drudge is leading with {n.group(1) if n else 'several'} on this"
+    if s.kind == "news" and meta.get("clusters"):
+        top = f", {meta['t1']} top-tier" if meta.get("t1") else ""
+        return f"{meta['clusters']} outlets reporting{top}"
+    if s.kind == "social":
+        m = re.search(r"about (\d+) posts", s.title)
+        return f"social buzz, ~{m.group(1)} posts/hr" if m else _short(s.title, 56)
+    return _short(s.title, 64)
+
+
+def _because(why):
+    """Shorten an 'explained by' reason."""
+    m = re.match(r"probably a knock-on effect of the (.+?) problem", why)
+    if m:
+        return f"likely a knock-on of {m.group(1)}"
+    if "weather" in why:
+        return "likely the weather"
+    if "solar" in why:
+        return "likely a solar storm"
+    return _short(why, 48)
+
+
+def _src(s):
+    return {"title": s.title, "url": s.url, "by": s.source, "kind": s.kind, "sev": s.severity,
+            "links": [{"title": l.get("title", ""), "url": l.get("url", "")} for l in (s.links or [])[:5] if l.get("title")]}
+
+
+def _reasons(label, res, cats, ok_n, total, down):
+    """Short, punchy bullets, each expandable to the sources behind it. dir: up = raises concern, soft = unconfirmed
+    hint, down = calming, warn = a blind spot. Every bullet is built from the real analysis."""
+    credible = set(res.get("credible", []))
+    explained = {e["domain"]: e["why"] for e in res["explained"]}
+    out = []
+
+    def add(d, text, tag="", sources=None, why=None, area=None, label=None):
+        out.append({"dir": d, "text": text, "tag": tag, "sources": sources or [], "why": why or [],
+                    "area": area, "area_label": label})
+
+    for cat, c in sorted(cats.items(), key=lambda kv: -kv[1]["level"]):
+        if c["level"] < 1 or cat == "elite":
+            continue
+        live = [s for s in c["signals"] if s.severity >= 1 and s.kind != "system"]
+        if not live or CATEGORIES[cat] in explained:
+            continue
+        prim = [s for s in live if s.kind in ("gov", "private")]
+        best = (prim or [s for s in live if s.kind == "news"] or live)[0]
+        if prim:
+            d, tag = "up", "Official / live data"
+        elif cat in credible:
+            d, tag = "up", "Several top outlets"
+        elif any(s.kind == "news" for s in live):
+            d, tag = "soft", "News only"
+        else:
+            d, tag = "soft", "Social only"
+        add(d, f"{AREA.get(cat, CATEGORIES[cat])}: {_headline(best)}", tag, [_src(s) for s in live[:6]],
+            area=cat, label=AREA.get(cat, CATEGORIES[cat]))
+
+    if res.get("canary") and credible:
+        add("up", "Top news outlets report it; officials haven't spoken yet", "Early signal",
+            [_src(s) for k in credible for s in cats[k]["signals"] if s.kind == "news" and s.severity >= 2][:6],
+            ["Several independent top-tier outlets report it. Governments are often slow to confirm bad news."])
+    sb = res.get("slow_burn") or {}
+    if sb.get("active"):
+        names = [a["label"] for a in sb["areas"]]
+        add("up", f"{len(names)} areas troubled for hours", "Slow burn",
+            [_src(s) for a in sb["areas"][:5] for s in cats[a["key"]]["signals"] if s.severity >= 1][:6],
+            [sb["why"]])
+    if res.get("simultaneous"):
+        add("up", "Problems started within minutes of each other", "Timing")
+    top = res["hypotheses"][0] if res["hypotheses"] else None
+    if top and res["level"] >= 2 and top["key"] in ("cyber", "physical", "strategic"):
+        add("up", f"Fits {HYP_SHORT[top['key']]} (score {top['score']:g})", "Pattern",
+            why=[f"{e['pts']:+g} {e['why']}" for e in top["evidence"][:4]])
+
+    calm = []
+    for dom, why in explained.items():
+        key = next((k for k, v in CATEGORIES.items() if v == dom), None)
+        srcs = [_src(s) for s in (cats.get(key, {}).get("signals", []) + cats.get("natural", {}).get("signals", [])
+                                  + cats.get("space", {}).get("signals", [])) if s.severity >= 1][:5]
+        calm.append(("down", f"{AREA.get(key, dom)}: {_because(why)}", "Harmless cause", srcs, []))
+    if top and top["key"] in ("accident", "natural", "hoax") and 1 <= res["level"] <= 2:
+        calm.append(("down", f"Most likely {HYP_SHORT[top['key']]}", "Best guess", [],
+                     [f"{e['pts']:+g} {e['why']}" for e in top["evidence"][:4]]))
+    if res["level"] >= 1 and not any(c["primary"] for c in res["clusters"]) and not res.get("canary"):
+        quiet = [s for k in ("aviation", "telecom", "internet", "power") for s in cats[k]["signals"]
+                 if s.kind in ("gov", "private") and s.severity == 0][:5]
+        calm.append(("down", "No official source confirms a real problem", "Checked", [_src(s) for s in quiet], []))
+    for d, t, tag, srcs, why in calm[:3]:
+        add(d, t, tag, srcs, why)
+
+    claims = res.get("claims") or []
+    if claims:
+        cl = claims[0]
+        add("soft" if cl["verdict"] in ("verified", "unverified") else "down",
+            f"Viral {cl['platform']} post about {AREA.get(cl['category'], cl['category']).lower()}: {cl['verdict']} ({cl['score']}/100)",
+            "Claim check", [{"title": _short(cl["text"], 90), "url": cl["url"], "by": cl["platform"], "kind": "social", "sev": 0,
+                             "links": []}], [p["why"] for p in cl["parts"][:4]], area="claim", label="Viral post")
+    if down and label != "NO DATA":
+        n = len(down)
+        add("warn", f"{n} source{'s' if n > 1 else ''} not working: a quiet result counts for less", "Blind spot",
+            [{"title": x.replace("News: ", "news: "), "url": "", "by": "", "kind": "system", "sev": 0, "links": []} for x in down[:6]])
+    if label == "NO DATA":
+        add("warn", f"Only {ok_n} of {total} sources reachable", "Blind spot")
+    if not out and label == "NORMAL":
+        quiet = [s for c in cats.values() for s in c["signals"] if s.kind in ("gov", "private") and s.severity == 0][:8]
+        add("down", f"All {ok_n} working sources look normal", "Checked", [_src(s) for s in quiet])
+
+    out.sort(key=lambda r: _DIR_ORDER[r["dir"]])
+    return out[:8]
+
+
 def _join(parts):
     return parts[0] if len(parts) == 1 else ", ".join(parts[:-1]) + " and " + parts[-1]
 
@@ -103,7 +293,28 @@ def _near(local, loc):
             "lines": [{"text": s.title, "url": s.url, "level": s.severity, "detail": s.detail} for s in sigs[:6]]}
 
 
-def tell(label, res, cats, ok_n, total, failing, down=None, local=None, loc=None):
+WORLD_LABEL = {"Geopolitical escalation": "Geopolitics", "Nuclear / missile / EMP": "Missiles & nuclear",
+               "Terror / coordinated attack": "Terror", "Explosions / mass casualty": "Explosions",
+               "Cyberattack on infrastructure": "Cyber", "Infrastructure sabotage": "Sabotage"}
+
+
+def _world(signals):
+    """The quiet 'In the world' line: overseas stories, as tappable items. Context only."""
+    out = []
+    for s in sorted(signals, key=lambda x: -len(x.links or [])):
+        name = s.title.split(":")[0].strip()
+        label = WORLD_LABEL.get(name, name if not name.startswith("Drudge") else "Drudge")
+        out.append({"dir": "world", "text": f"{label}: {_short(s.title.split(':', 1)[-1].strip(), 60)}", "tag": "Overseas",
+                    "area": "world", "area_label": label, "why": [], "sources": [_src(s)]})
+    seen, uniq = set(), []
+    for o in out:
+        if o["area_label"] not in seen:
+            seen.add(o["area_label"])
+            uniq.append(o)
+    return uniq[:5]
+
+
+def tell(label, res, cats, ok_n, total, failing, down=None, local=None, loc=None, world=None):
     """Returns a dict the dashboard renders as the top 'bottom line' card."""
     level = res["level"]
     head, sub = HEAD[label]
@@ -161,5 +372,8 @@ def tell(label, res, cats, ok_n, total, failing, down=None, local=None, loc=None
     return {
         "headline": head, "summary": sub, "going_on": going, "going_more": more, "calm": calm, "worry": worry,
         "todo": TODO[label], "louder": louder, "near_you": _near(local, loc), "attack_chance": res["plausibility"].lower(),
+        "status_line": STATUS_LINE[label], "posture": {"name": POSTURE[label][0], "line": POSTURE[label][1]},
+        "reasons": _reasons(label, res, cats, ok_n, total, down or []),
+        "scale": _scale(label, cats), "world": _world(world or []), "cause": _cause(res),
         "checked": f"{ok_n} of {total} sources checked" if total else "",
     }

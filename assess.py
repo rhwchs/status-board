@@ -20,6 +20,7 @@ see *why* the monitor believes what it believes. All thresholds are in config.js
 import re
 
 from collectors import CATEGORIES
+from trust import credible as news_credible, tier_of
 
 PRIMARY = ("gov", "private")
 LIFELINE = ("power", "telecom", "internet", "finance", "aviation")
@@ -28,7 +29,23 @@ LIFELINE = ("power", "telecom", "internet", "finance", "aviation")
 DOWNSTREAM = {
     "power":    ("telecom", "internet", "finance", "aviation"),
     "telecom":  ("internet", "finance", "aviation"),
-    "internet": ("finance", "aviation", "telecom"),
+    "internet": ("finance", "aviation"),
+}
+CASCADE_MIN, CASCADE_MAX = 600, 3 * 3600     # an upstream failure explains a later one only if it came 10 minutes to 3 hours
+                                             # earlier: closer than that, polling jitter decides the order, so it counts as simultaneous
+ESSENTIAL = ("power", "telecom", "finance", "internet")   # what people most need working; flights matter less
+AREA_WORDS = {   # words that tie a headline to ONE area; a shared word like "outage" does not (a bank-outage hoax is not about power)
+    "power": r"blackout|power|grid|electric|utility|utilities", "telecom": r"911|phone|cell|telecom|wireless|carrier",
+    "internet": r"internet|cloud|website|online|broadband|\bdns\b", "finance": r"bank|payment|atm\b|card|trading|stock|market|financ|zelle|venmo",
+    "aviation": r"flight|airport|airline|\bfaa\b|airspace|ground stop|grounded",
+    "security": r"explosion|bomb|shoot|terror|gunfire|blast|hostage|evacuat|sabotage|attack",
+}
+DOMAIN_KW = {   # words that tie a headline to an area (so a debunk of something else cannot cancel this story)
+    "power": r"power|blackout|grid|electric|utility|outage", "telecom": r"911|phone|cell|telecom|carrier|wireless|outage",
+    "internet": r"internet|cloud|outage|network|website|online|down", "finance": r"bank|payment|atm|card|market|trading|financ",
+    "aviation": r"flight|airport|airline|faa|airspace|ground stop|grounded", "cyber": r"cyber|hack|ransom|breach|malware|ddos",
+    "security": r"explosion|bomb|attack|shoot|terror|gunfire|blast|hostage|evacuat|sabotage",
+    "nuclear": r"nuclear|missile|radiation|\bemp\b|nuke|strike",
 }
 
 HYP = {
@@ -103,7 +120,7 @@ def _track(mem, name, active, now, warm):
             quiet.pop(name, None)
 
 
-def assess(cats, mem, params, now):
+def assess(cats, mem, params, now, slow_fn=None):
     """cats: {category: {"level": int, "signals": [Signal]}}; mem: persistent dict for onset tracking."""
     p = params or {}
     sim_window = p.get("simultaneity_minutes", 45) * 60
@@ -160,9 +177,13 @@ def assess(cats, mem, params, now):
         else:
             for up, downs in DOWNSTREAM.items():
                 if up != d and up in active and d in downs and onset.get(d) and onset.get(up) \
-                        and onset[up] + 60 < onset[d]:
+                        and CASCADE_MIN < onset[d] - onset[up] <= CASCADE_MAX:
                     explained[d] = ("cascade", f"probably a knock-on effect of the {CATEGORIES[up]} problem, which started first")
                     break
+
+    # ---- 2b. slow burn: several independent areas sustained-unusual over hours (slowburn.py, needs history)
+    sb = slow_fn([CATEGORIES[d] for d in explained]) if slow_fn else None
+    slow_on = bool(sb and sb["active"])
 
     # ---- 3. independent clusters (lifeline domains not explained away, plus official threat warnings)
     clusters = {d: {"label": CATEGORIES[d], "primary": active[d]["primary"]} for d in active if d not in explained}
@@ -184,19 +205,55 @@ def assess(cats, mem, params, now):
     n_conf = sum(1 for c in clusters.values() if c["primary"])
 
     # ---- 4. real headlines (news only; social is excluded because adversaries use it too)
-    heads = []
+    heads, heads_o = [], []
     for s in sigs:
         if s.kind == "news":
-            heads += [l.get("title", "") for l in s.links]
+            for l in s.links:
+                t = l.get("title", "")
+                if t:
+                    heads.append(t)
+                    heads_o.append((t, t.rsplit(" — ", 1)[1] if " — " in t else ""))
     heads = list(dict.fromkeys(h for h in heads if h))
 
     def hits(rx):
         return sum(1 for h in heads if rx.search(h))
 
-    n_cyber, n_phys, n_sab = hits(CYBER_RX), hits(PHYS_RX), hits(SAB_RX)
-    n_strat, n_denial = hits(STRAT_RX), hits(DENIAL_RX)
-    n_vendor, n_debunk = hits(VENDOR_RX), hits(DEBUNK_RX)
-    gate = bool(clusters)
+    # Governments are often slow to confirm bad news, so a story that several INDEPENDENT top-tier outlets are
+    # reporting counts as credible on its own (see trust.py). {category: highest severity of such a news signal}
+    cred = {}
+    for k, c in cats.items():
+        if k in ("elite", "markets", "space", "natural"):
+            continue
+        for s in c["signals"]:
+            if s.kind == "news" and s.severity >= 2 and news_credible(getattr(s, "meta", None)):
+                cred[k] = max(cred.get(k, 0), s.severity)
+
+    # A debunk or denial only counts if it is about the same area as the story it would cancel (an unrelated "hoax bomb
+    # threat" or "package was not malicious" headline must not switch off a real blackout), comes from a source with a
+    # record, and there are at least two. Denials are never counted as attack headlines.
+    rel_areas = set(active) | set(cred) | {k for k in cats if cats[k]["level"] >= 2 and k not in ("elite", "markets", "space", "natural")}
+    rel_rx = re.compile("|".join(DOMAIN_KW[k] for k in rel_areas if k in DOMAIN_KW) or r"(?!x)x", re.I)
+
+    def relevant(rx):         # denials: about an outage, from a source with a record, at least two
+        got = {h for h, o in heads_o if rx.search(h) and rel_rx.search(h) and tier_of(o) != 4}
+        return len(got) if len(got) >= 2 else 0
+
+    # A debunk cancels only the area it is about. A headline naming one area's words belongs to that area; a generic one
+    # ("outage claims are false") counts toward every active area. An area is debunked with two such headlines.
+    live_areas = [k for k in AREA_WORDS if k in rel_areas]
+    deb_count = {k: 0 for k in live_areas}
+    for h in {h for h, o in heads_o if DEBUNK_RX.search(h) and tier_of(o) != 4}:
+        named = [k for k in AREA_WORDS if re.search(AREA_WORDS[k], h, re.I)]
+        for k in (named if named else live_areas):
+            if k in deb_count:
+                deb_count[k] += 1
+    debunked = {k for k, c in deb_count.items() if c >= 2}
+
+    n_cyber = sum(1 for h in heads if CYBER_RX.search(h) and not DENIAL_RX.search(h))
+    n_phys, n_sab = hits(PHYS_RX), hits(SAB_RX)
+    n_strat, n_denial = hits(STRAT_RX), relevant(DENIAL_RX)
+    n_vendor, n_debunk = hits(VENDOR_RX), len(debunked)
+    gate = bool(clusters) or slow_on
 
     ev = {h: [] for h in HYP}
 
@@ -230,6 +287,9 @@ def assess(cats, mem, params, now):
             f"{int((max(ons) - min(ons)) // 60)} minutes of each other, which is hard to explain with a single bug", True)
     if len(life) >= 2:
         add("cyber", 1, "Essential services hit together: " + ", ".join(CATEGORIES[c] for c in life), True)
+    if slow_on:
+        add("cyber", 3 if n_cyber >= 2 else 1, f"A slow burn: {sb['n_sustained']} different essential or threat areas have shown "
+            "credible trouble for hours. A rolling, staggered campaign looks like this; one accident usually does not", True)
     if n_denial:
         add("cyber", -3, "Officials say it was not a cyberattack")
     # physical
@@ -254,7 +314,7 @@ def assess(cats, mem, params, now):
         return v[0] if v else None
 
     air_normal = sev_of("faa:agg") == 0 and sev_of("adsb:total") == 0   # national air-traffic telemetry is healthy
-    unconfirmed = [k for k in cats if k != "elite" and cats[k]["level"] >= 2 and not prim(k)]
+    unconfirmed = [k for k in cats if k != "elite" and cats[k]["level"] >= 2 and not prim(k) and k not in cred]
     contained = [k for k in unconfirmed if k == "aviation" and air_normal]
     rest = [k for k in unconfirmed if k not in contained]
     if contained:
@@ -263,26 +323,118 @@ def assess(cats, mem, params, now):
     if rest:
         add("hoax", 2, "No government or live-data source confirms it: " + ", ".join(CATEGORIES[k] for k in rest))
     if n_debunk:
-        add("hoax", 3, f"{n_debunk} headline(s) call a claim fake, doctored or misinformation")
+        add("hoax", 3, "News outlets are calling claims about " + ", ".join(sorted(debunked)) + " fake, doctored or misinformation")
+
+    # ---- social claims that are spreading, checked against everything else (credibility.py)
+    checks, claim_lines = {}, []
+    for k, c in cats.items():
+        cl = c.get("claims") or []
+        if not cl:
+            continue
+        best = cl[0]
+        checks[k] = best["verdict"]
+        if best["verdict"] == "refuted":
+            add("hoax", 2, f"A spreading social-media claim about {CATEGORIES[k].lower()} is being called fake by news outlets")
+        elif best["verdict"] == "rumor":
+            add("hoax", 1, f"A spreading social-media claim about {CATEGORIES[k].lower()} comes from low-credibility accounts "
+                           "and nothing else confirms it")
+        weak = "; ".join(p["why"] for p in best["parts"][:3])
+        claim_lines.append((best["engagement"], f"A {best['platform']} post about {CATEGORIES[k].lower()} is spreading "
+                            f"({best['engagement']} reactions). Claim check: {best['score']}/100, {best['verdict']}. {weak}."))
+    claim_lines = [t for _, t in sorted(claim_lines, reverse=True)[:2]]
+
+    # a natural hazard with an official warning is a plan-changing event in its own right (and a cause)
+    hazard_sev = max([x.severity for x in prim("natural") if "official-hazard" in x.tags] or [0])
+    if hazard_sev >= 2:
+        add("natural", 4, "An official Weather Service warning is active for a major hazard (hurricane, ice storm, blizzard, extreme wind)")
+
+    # ---- canary: credible reporting while officials are still silent (never replaces telemetry for the top level)
+    cred_dom = [k for k in cred if k not in explained and k not in contained]
+    life_cred = [k for k in cred_dom if k in LIFELINE]
+    life_cred = [k for k in life_cred if k not in debunked]
+    sec_cred = cred.get("security", 0) >= 3 and "security" not in debunked
+    canary = len(life_cred) >= 2 or sec_cred
+    if sec_cred:
+        add("physical", 3, "Several independent top-tier news outlets report a large-scale or coordinated attack "
+                           "(government sources have not confirmed it yet, and they are often slow to)", True)
+    elif len(life_cred) >= 2 and not prim_sigs:
+        add("cyber", 1, "Several top-tier outlets credibly report trouble in more than one essential area at once", True)
 
     score = {h: max(0.0, round(sum(e["pts"] for e in ev[h]), 1)) for h in HYP}
     A = max(score[h] for h in ATTACK)
     B = max(score[h] for h in ("accident", "natural", "hoax"))
     lead_attack = max(ATTACK, key=lambda h: score[h])
     official_strong = (lead_attack == "cyber" and "official-cyber" in tags) or \
-                      (lead_attack == "strategic" and "official-strategic" in tags)
+                      (lead_attack == "strategic" and "official-strategic" in tags) or \
+                      (lead_attack == "physical" and flags["threat:physical"])
 
-    # ---- 5. level
-    official3 = any(s.severity >= 3 for s in prim_sigs)
-    corrob = any(cats[k]["level"] >= 2 and len({s.kind for s in cats[k]["signals"]
-                                                if s.severity >= 1 and s.kind not in ("system", "social")}) >= 2
+    # ---- 5. level. IMPACT FIRST: is something real, confirmed and significant reaching you, and how bad? The CAUSE (accident,
+    # weather, attack) is a label on it, and only the top step needs an attack-shaped pattern. A big storm that takes down power
+    # counts as an impact just like a hacker would; a cascade or a storm no longer makes a real disruption disappear.
+    def official_sev(d):          # routine weather ground stops are not a disruption to anyone's life
+        return max([x.severity for x in prim(d) if not (d == "aviation" and "weather-attributed" in x.tags)] or [0])
+
+    sig = {}                      # significant, confirmed disruptions by area: (how we know, severity)
+    for d in LIFELINE:
+        if d in contained:
+            continue
+        o = official_sev(d)
+        if o >= 2:
+            sig[d] = ("official", o)
+        elif d in cred and cats[d]["level"] >= 2 and d not in debunked:
+            sig[d] = ("credible", 2)               # several top outlets, officials silent so far (unless debunked)
+        elif o >= 1 and cats[d]["level"] >= 2:
+            sig[d] = ("official", 1)               # a minor official reading that news also reports at level 2
+    if hazard_sev >= 2:
+        sig["natural"] = ("official", hazard_sev)
+    n_sig = len(sig)
+    # still going after hours: it is not a blip. An essential service confirmed down for 6+ hours will change plans for days.
+    long_lasting = any(k == "official" and d in ESSENTIAL and onset.get(d) and now - onset[d] >= 6 * 3600
+                       for d, (k, sv) in sig.items())
+    critical = any(k == "official" and sv >= 3 and d in ESSENTIAL for d, (k, sv) in sig.items())
+    official3 = any(official_sev(d) >= 3 for d in LIFELINE) or any(x.severity >= 3 for x in prim_sigs if x.category not in LIFELINE)
+    corrob = any(cats[k]["level"] >= 2 and len({x.kind for x in cats[k]["signals"]
+                                                if x.severity >= 1 and x.kind not in ("system", "social")}) >= 2
                  for k in LIFELINE + ("cyber", "nuclear")     # not 'security': daily local incidents are not national alarms
                  if k not in explained)                       # an explained disruption does not raise the alarm
     any_active = any(cats[k]["level"] >= 1 for k in cats)
-    if n_conf >= 1 and A >= T3 and A - B >= margin and (len(clusters) >= 2 or official_strong):
-        level = 3
-    elif n_conf >= 2 or (len(clusters) >= 2 and n_conf >= 1) or official3 or corrob or \
-            (n_conf >= 1 and A >= T2 and lead_attack in ("cyber", "strategic")):
+    attack_pattern = n_conf >= 1 and A >= T3 and A - B >= margin
+    threat_here = flags["threat:cyber"] or flags["threat:physical"]
+    rules = []                    # every condition that holds, so a false alarm can be traced to the rule that caused it
+    if flags["threat:strategic"]:
+        rules.append("official strategic warning")
+    if hazard_sev >= 3:
+        rules.append("official warning of an imminent major hazard")
+    if attack_pattern and (n_sig >= 2 or (n_sig >= 1 and official_strong)):
+        rules.append("attack-shaped pattern with confirmed disruptions")
+    if critical and n_sig >= 2:
+        rules.append("critical essential failure that is spreading")
+    if n_sig >= 2:
+        rules.append(f"{n_sig} confirmed disruptions ({', '.join(sorted(sig))})")
+    if critical:
+        rules.append("critical failure of an essential service")
+    if long_lasting:
+        rules.append("essential service down for 6+ hours")
+    if hazard_sev == 2:
+        rules.append("official warning for a major hazard")
+    if official3:
+        rules.append("a critical official signal")
+    if corrob:
+        rules.append("several kinds of source agree on one area")
+    if canary:
+        rules.append("several top outlets report it (officials silent)")
+    if slow_on:
+        rules.append("slow burn across several areas")
+    if threat_here and n_sig >= 1:
+        rules.append("official threat warning plus a disruption")
+    if flags["threat:strategic"] or hazard_sev >= 3:
+        level = 3                                       # an official warning of an imminent major threat: strategic, or a hurricane
+    elif attack_pattern and (n_sig >= 2 or (n_sig >= 1 and official_strong)):
+        level = 3                                       # an attack-shaped pattern of confirmed disruptions
+    elif critical and n_sig >= 2:
+        level = 3                                       # a critical failure of something essential, spreading, whatever the cause
+    elif n_sig >= 2 or critical or long_lasting or hazard_sev >= 2 or official3 or corrob or canary or slow_on \
+            or (threat_here and n_sig >= 1):
         level = 2
     elif any_active:
         level = 1
@@ -311,11 +463,22 @@ def assess(cats, mem, params, now):
                        + (" — they started within minutes of each other." if simultaneous else "."))
     elif clusters:
         reasons.append("One problem is active: " + ", ".join(c["label"] for c in clusters.values()) + ".")
+    reasons += claim_lines
+    if slow_on:
+        reasons.append(sb["why"])
+    if canary and level >= 2 and not n_conf:
+        reasons.append("Several independent top-tier news outlets are reporting this and no government source has "
+                       "confirmed it yet. Governments are often slow to confirm bad news, so this is treated as credible.")
     if explained:
         reasons.append("These look explained by something else: " + "; ".join(f"{CATEGORIES[d]} ({w})" for d, (_k, w) in explained.items()))
     if not reasons:
         hot = [CATEGORIES[k] for k in cats if cats[k]["level"] >= 1 and k != "elite"]
-        reasons.append("Some unusual activity in: " + ", ".join(hot) + " (not confirmed by official sources yet)." if hot else "Nothing unusual is showing up.")
+        cr = [CATEGORIES[k] for k in cred if cats[k]["level"] >= 1]
+        if hot:
+            reasons.append("Some unusual activity in: " + ", ".join(hot) + " (not confirmed by official sources yet"
+                           + (f"; several independent top-tier outlets are reporting {', '.join(cr)}" if cr else "") + ").")
+        else:
+            reasons.append("Nothing unusual is showing up.")
     reasons.append(verdict)
 
     show = {top, second, lead_attack}
@@ -333,5 +496,8 @@ def assess(cats, mem, params, now):
         "clusters": [{"name": k, "label": v["label"], "primary": v["primary"]} for k, v in clusters.items()],
         "explained": [{"domain": CATEGORIES[d], "why": w} for d, (_k, w) in explained.items()],
         "simultaneous": simultaneous,
+        "credible": sorted(cred), "canary": bool(canary), "impact": {d: {"how": k, "sev": sv} for d, (k, sv) in sig.items()},
+        "attack_pattern": bool(attack_pattern), "critical": bool(critical), "long_lasting": bool(long_lasting), "rules": rules, "social_checks": checks,
+        "claims": [dict(cl[0], category=k) for k, c in cats.items() for cl in [c.get("claims") or []] if cl][:5], "slow_burn": sb or {"active": False},
         "verify": [{"title": t, "url": u} for t, u in verify[:8]],
     }

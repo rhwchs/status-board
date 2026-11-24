@@ -31,6 +31,7 @@ def compute(label, cats, res):
         return None
     lo, hi = BANDS[label]
     explained = {e["domain"] for e in res["explained"]}
+    credible = set(res.get("credible", []))
     parts = []
     for k, c in cats.items():
         if c["level"] < 1:
@@ -40,13 +41,22 @@ def compute(label, cats, res):
             f, how = 0.3, "has a harmless explanation"
         elif official:
             f, how = 1.0, "confirmed by an official source"
+        elif k in credible:
+            f, how = 0.85, "reported by several independent top-tier news outlets (no official confirmation yet)"
         elif c.get("social_only"):
-            f, how = 0.25, "only people posting"
+            v = (res.get("social_checks") or {}).get(k)
+            f, how = ((0.4, "people posting, and the spreading claim checks out") if v == "verified" else
+                      (0.1, "people posting, but the spreading claim looks like a rumor") if v in ("rumor", "refuted") else
+                      (0.25, "only people posting"))
         else:
             f, how = 0.5, "reported by news, not confirmed"
         pts = WEIGHT.get(k, 4) * LEVEL_F.get(c["level"], 1.8) * f
         if pts >= 0.5:
             parts.append({"pts": round(pts, 1), "why": f"{CATEGORIES[k]}: {how}"})
+    sb = res.get("slow_burn") or {}
+    if sb.get("active"):
+        parts.append({"pts": min(8.0, 2.0 * sb["n_sustained"]),
+                      "why": f"{sb['n_sustained']} different areas have shown trouble for hours (slow burn)"})
     n_cl = len(res["clusters"])
     if n_cl >= 2:
         parts.append({"pts": 4.0 * (n_cl - 1), "why": f"{n_cl} separate problems at once"})

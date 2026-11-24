@@ -30,13 +30,14 @@ class Store:
                 self.history = json.load(f)
         except (OSError, ValueError):
             self.history = {}
+        self.extra = self.history.pop("_extra", {}) if isinstance(self.history, dict) else {}   # small state kept between runs
 
-    def record(self, key, value, now=None):
+    def record(self, key, value, now=None, keep=None):
         now = now or time.time()
         with self.lock:
             h = self.history.setdefault(key, [])
             h.append([now, value])
-            cutoff = now - KEEP_SECONDS
+            cutoff = now - (keep or KEEP_SECONDS)
             while h and h[0][0] < cutoff:
                 h.pop(0)
 
@@ -99,7 +100,7 @@ class Store:
 
     def save(self):
         with self.lock:
-            data = json.dumps(self.history)
+            data = json.dumps({**self.history, "_extra": self.extra})
         tmp = self.path + ".tmp"
         try:
             with open(tmp, "w") as f:

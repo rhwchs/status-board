@@ -100,6 +100,57 @@
   .bar i { display:block; height:100%; background:var(--l2); }
   .hs { text-align:right; font-variant-numeric:tabular-nums; color:var(--dim); }
   footer { color:var(--dim); font-size:12px; margin-top:28px; }
+  /* top card: status, suggested posture, punchy reasons */
+  .hero { display:flex; gap:14px; align-items:flex-start; }
+  .hero .left { flex:1; min-width:0; }
+  .eyebrow { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); font-weight:700; }
+  .levelname { font-size:30px; font-weight:800; line-height:1.1; margin:4px 0 6px; color:var(--lc,var(--l0)); }
+  .levelname .num { display:inline-block; min-width:1.1em; margin-right:6px; opacity:.9; }
+  .desc { font-size:16px; line-height:1.45; margin:0; }
+  .evchip { font:inherit; font-size:14px; font-weight:700; padding:2px 10px; margin:2px 2px 2px 0; border-radius:99px; cursor:pointer;
+            border:1px solid var(--lc,var(--l1)); background:transparent; color:var(--text); }
+  .evchip::after { content:' \25BE'; color:var(--dim); }
+  .evchip[aria-expanded=true] { background:var(--lc,var(--l1)); color:#fff; }
+  .evchip[aria-expanded=true]::after { content:' \25B4'; color:#fff; }
+  .evpanel { margin:10px 0 0; padding:8px 12px; background:var(--panel2); border-radius:10px; font-size:13px; }
+  .evpanel .evt { font-weight:700; margin-bottom:2px; }
+  .evpanel .rs { margin:6px 0; }
+  .evpanel ul { margin:4px 0 0; padding-left:18px; }
+  .evpanel .by { color:var(--dim); font-size:12px; }
+  ol.scale { list-style:none; margin:0; padding:0; width:124px; flex:none; display:grid; gap:3px; }
+  ol.scale li { display:flex; align-items:center; gap:6px; font-size:11px; font-weight:700; padding:3px 8px; border-radius:6px;
+                border:1px solid var(--line); color:var(--dim); line-height:1.25; }
+  ol.scale li b { display:inline-block; width:12px; text-align:center; }
+  ol.scale li.on { color:#fff; border-color:transparent; background:var(--sc); font-size:12px; padding:5px 8px;
+                   box-shadow:0 0 0 2px var(--bg), 0 0 0 4px var(--sc); margin:2px 0; }
+  ol.scale li.na { opacity:.4; }
+  .scalenote { font-size:10px; color:var(--dim); margin-top:4px; width:124px; }
+  .worldline { margin-top:12px; font-size:13px; color:var(--dim); --lc:var(--lx); }
+  .worldline .evchip { font-size:12px; padding:1px 9px; border-color:var(--line); color:var(--dim); }
+  .whynot { margin-top:12px; font-size:13px; }
+  .whynot > summary { cursor:pointer; color:var(--dim); }
+  .whynot ul.why { margin-top:6px; }
+  .posture { background:var(--panel2); border-radius:10px; padding:10px 14px; border-left:4px solid var(--lc,var(--l0)); }
+  .posture .plabel { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); }
+  .posture b { font-size:21px; }
+  .posture .pline { display:block; font-size:14px; color:var(--dim); margin-top:2px; }
+  ul.why { list-style:none; padding:0; margin:14px 0 0; }
+  .r > summary, .r > .rsum { display:flex; gap:10px; align-items:flex-start; padding:10px 0; border-top:1px solid var(--line); list-style:none; }
+  .r > summary { cursor:pointer; }
+  .r > summary::-webkit-details-marker { display:none; }
+  .r > summary::after { content:'\203A'; color:var(--dim); font-size:20px; line-height:1; margin-left:4px; transition:transform .15s; }
+  .r[open] > summary::after { transform:rotate(90deg); }
+  .r .ic { width:18px; flex:none; text-align:center; font-weight:800; }
+  .r.up .ic { color:var(--l2); } .r.soft .ic { color:var(--l1); } .r.down .ic { color:var(--l0); } .r.warn .ic { color:var(--lx); }
+  .r .rt { flex:1; font-weight:600; }
+  .r .rtag { font-size:11px; color:var(--dim); white-space:nowrap; padding-top:3px; }
+  .r .rb { padding:0 0 12px 28px; font-size:13px; }
+  .r .rb ul { margin:4px 0 0; padding-left:18px; }
+  .r .rs { margin:6px 0; }
+  .r .rs .by { color:var(--dim); font-size:12px; }
+  .foot { color:var(--dim); font-size:12px; margin-top:10px; border-top:1px solid var(--line); padding-top:8px; }
+  .foot details { margin-top:6px; }
+  .foot summary { cursor:pointer; }
 </style>
 </head>
 <body>
@@ -108,7 +159,7 @@
   <div class="banner" id="banner"><div class="lvl">Connecting…</div></div>
   <div id="near"></div>
 
-  <h2>The details (only if you want them)</h2>
+  <h2>The details (whole US)</h2>
   <div id="assess"></div>
 
   <h2>What I'm watching</h2>
@@ -236,7 +287,7 @@ async function browserNear() {
         const r = await fetch('https://api.zippopotam.us/us/' + z); if (!r.ok) throw 0;
         const p = (await r.json()).places[0];
         localStorage.setItem('sb_loc', JSON.stringify({name: p['place name'] + ', ' + p['state abbreviation'], lat: +p.latitude, lon: +p.longitude}));
-        browserNear();
+        browserNear(); if (SNAP) render(SNAP);
       } catch (err) { msg.textContent = "Couldn't find that ZIP code. Check it and try again."; }
     };
     return;
@@ -259,27 +310,113 @@ async function browserNear() {
     <div class="nm">Near you · ${esc(loc.name)}</div><div class="nh">${esc(head)}</div>
     ${lines.length ? '<ul>' + lines.slice(0, 5).map(l => `<li>${link(url, l.t)}</li>`).join('') + '</ul>' : ''}
     <button class="chg" id="chg">Change area</button></div>`;
-  document.getElementById('chg').onclick = () => { try { localStorage.removeItem('sb_loc'); } catch (e) {} browserNear(); };
+  document.getElementById('chg').onclick = () => { try { localStorage.removeItem('sb_loc'); } catch (e) {} browserNear(); if (SNAP) render(SNAP); };
+}
+
+const REASON_ICON = {up:'\u25B2', soft:'\u25CF', down:'\u25BC', warn:'!'};
+function reasonHtml(r) {
+  const srcs = (r.sources || []).map(x => {
+    const sub = (x.links || []).map(l => `<li>${link(l.url, l.title)}</li>`).join('');
+    return `<div class="rs"><span class="badge">${KIND[x.kind] || esc(x.kind)}</span>${link(x.url, x.title)}${x.by ? ` <span class="by">${esc(x.by)}</span>` : ''}${sub ? `<ul>${sub}</ul>` : ''}</div>`;
+  }).join('');
+  const why = (r.why || []).length ? '<ul>' + r.why.map(w => `<li>${esc(w)}</li>`).join('') + '</ul>' : '';
+  const head = `<span class="ic">${REASON_ICON[r.dir] || '\u25CF'}</span><span class="rt">${esc(r.text)}</span>${r.tag ? `<span class="rtag">${esc(r.tag)}</span>` : ''}`;
+  if (!srcs && !why) return `<li><div class="r ${r.dir}"><div class="rsum">${head}</div></div></li>`;
+  return `<li><details class="r ${r.dir}" data-k="${esc(r.text)}"><summary>${head}</summary><div class="rb">${why}${srcs}</div></details></li>`;
+}
+
+function scoreInfo(sc) {
+  if (!sc || sc.value === null || sc.value === undefined) return '';
+  const u = sc.usual, pk = sc.peak24;
+  const normal = u ? `Normal here: about <b>${u.median}</b> (usually ${u.low}\u2013${u.high}).` : 'Still learning what a normal day looks like here.';
+  const parts = (sc.parts || []).map(p => `<li>+${p.pts} ${esc(p.why)}</li>`).join('');
+  return `<details><summary>How is the score made?</summary>
+    <div class="meta" style="margin-top:6px">${normal}${pk !== null && pk !== undefined ? ` Highest in the last 24 hours: <b>${pk}</b>.` : ''}
+    It is a severity gauge, not a probability: 0\u20139 normal, 10\u201329 watch, 30\u201359 elevated, 60+ attack pattern.</div>
+    ${parts ? `<ul style="margin:6px 0 0;padding-left:20px">${parts}</ul>` : '<div class="meta" style="margin-top:6px">Nothing is adding to it right now.</div>'}</details>`;
+}
+
+// Which view of the situation to show: events that can reach YOUR state (or the whole US until you add your area).
+function myState() {
+  try { const l = JSON.parse(localStorage.getItem('sb_loc') || 'null'); if (l && /, ?[A-Z]{2}$/.test(l.name)) return l.name.slice(-2); } catch (e) {}
+  return null;
+}
+function pickView(d) {
+  const vs = d.analysis.views || {}, mine = myState();
+  let key = 'all';
+  if (mine) key = vs[mine] ? mine : vs.elsewhere ? 'elsewhere' : 'all';
+  else if (!HOSTED && d.analysis.owner_view && vs[d.analysis.owner_view]) key = d.analysis.owner_view;   // the owner's own monitor
+  const v = vs[key];
+  const a = v ? Object.assign({}, d.analysis, {label: v.label, level: v.level, score: v.score, story: v.story}) : d.analysis;
+  const who = key === 'all' ? 'the whole US' : key === 'elsewhere' ? (mine || 'your area') : key;
+  return {a, key, who, personal: key !== 'all'};
 }
 
 function render(d) {
-  const a = d.analysis, lvl = a.label === 'NO DATA' ? null : a.level;
+  const view = pickView(d), a = view.a, lvl = a.label === 'NO DATA' ? null : a.level;
   const color = lvl === null ? 'var(--lx)' : COLORS[lvl];
   document.getElementById('banner').style.setProperty('--lc', color);
   const st = a.story || {};
   const list = (arr, f) => arr && arr.length ? '<ul>' + arr.map(f).join('') + '</ul>' : '';
-  document.getElementById('banner').className = 'banner story';
-  document.getElementById('banner').innerHTML =
-    `<span class="chip">ALERT LEVEL: ${esc(a.label)}</span>
-     <div class="head">${esc(st.headline || a.label)}</div>
-     ${gaugeHtml(a.score)}
-     <div class="sub">${esc(st.summary || PLAIN[a.label] || '')}</div>
-     ${st.todo ? `<div class="todo"><b>What to do:</b> ${esc(st.todo)}</div>` : ''}
-     ${st.going_on && st.going_on.length ? `<h3>What's going on</h3>${list(st.going_on, g => `<li>${link(g.url, g.text)}</li>`)}${st.going_more ? `<div class="meta">+ ${st.going_more} more area${st.going_more > 1 ? 's' : ''} in the details below</div>` : ''}` : ''}
-     ${st.calm && st.calm.length ? `<h3>Why I'm not freaking out</h3>${list(st.calm, t => `<li>${esc(t)}</li>`)}` : ''}
-     ${st.worry && st.worry.length ? `<h3>What worries me</h3>${list(st.worry, t => `<li>${esc(t)}</li>`)}` : ''}
-     ${st.louder ? `<div class="louder">${esc(st.louder)}</div>` : ''}
-     <div class="meta">${d.sources.filter(x => x.ok).length} of ${d.sources.length} sources working${d.sources.some(x => x.ok === false) ? `, ${d.sources.filter(x => x.ok === false).length} not working` : ''} · chance this is an attack: ${esc(st.attack_chance || '')} · ${SNAP ? (HOSTED ? 'checked ' : 'snapshot taken ') + new Date(SNAP.now*1000).toLocaleString() : 'running ' + ago(d.started).replace(' ago','') + ' · updated ' + new Date().toLocaleTimeString()}</div>`;
+  const banner = document.getElementById('banner');
+  const openKeys = new Set([...banner.querySelectorAll('details.r[open]')].map(e => e.dataset.k));
+  const openEv = new Set([...banner.querySelectorAll('.evchip[aria-expanded=true]')].map(e => e.dataset.k));
+  banner.className = 'banner story';
+  const sc = a.score, scoreTxt = sc && sc.value !== null && sc.value !== undefined ? sc.value : '?';
+  const po = st.posture || {}, scl = st.scale || {step: null, name: a.label, line: st.status_line || '', names: []};
+  const step = scl.step, act = step !== null && step >= 3;           // step 3+ suggests doing something
+  const STEPCOL = {1:'var(--l0)', 2:'var(--l1)', 3:'var(--l2)', 4:'var(--l3)', 5:'#7a0b0b'};
+  banner.style.setProperty('--lc', step ? STEPCOL[step] : 'var(--lx)');
+  const when = SNAP ? (HOSTED ? 'checked ' : 'snapshot ') + new Date(SNAP.now*1000).toLocaleTimeString([], {hour:'numeric', minute:'2-digit'})
+                    : 'updated ' + new Date().toLocaleTimeString([], {hour:'numeric', minute:'2-digit'});
+  const down = d.sources.filter(x => x.ok === false).length;
+  const reasons = st.reasons || [];
+  const world = st.world || [];
+  const events = reasons.filter(r => r.area && r.dir !== 'down');
+  const confirmedBy = events.some(r => r.tag === 'Official / live data');
+  // One sentence. For Normal/Watch (nothing to do) the sentence carries a tappable chip for each thing going on.
+  let desc;
+  if (step === 2 && events.length) {
+    desc = (confirmedBy ? 'Something unusual: ' : 'Something unusual, none of it confirmed by an official source: ')
+         + events.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`).join(' ');
+  } else if (step === 1) {
+    const ok = reasons.find(r => r.tag === 'Checked' && r.sources.length);
+    desc = 'Nothing unusual.' + (ok ? ` <button class="evchip" data-k="${esc(ok.text)}" aria-expanded="false">${esc(ok.text)}</button>` : '');
+  } else desc = esc(scl.line);
+  const scale = (scl.names || []).map((n, i) => `<li class="${step === i + 1 ? 'on' : step === null ? 'na' : ''}" style="--sc:${STEPCOL[i + 1]}"><b>${i + 1}</b>${esc(n)}</li>`).join('');
+  const whyNot = reasons.filter(r => step === 1 ? true : (r.dir === 'down' || r.dir === 'warn'));
+  banner.innerHTML =
+    `<div class="hero"><div class="left">
+        <div class="eyebrow">Current status</div>
+        <div class="levelname"><span class="num">${step || '?'}</span>${esc(scl.name)}</div>
+        <p class="desc">${desc}</p>
+      </div>
+      <div><ol class="scale" aria-label="Alert scale">${scale}</ol>${step === null ? '<div class="scalenote">No reading: not an all-clear.</div>' : ''}</div></div>
+     ${world.length ? `<div class="worldline">In the world (doesn't move the scale): ${world.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`).join(' ')}</div>` : ''}
+     <div id="evpanels"></div>
+     ${act && po.name ? `<div class="posture" style="margin-top:14px"><span class="plabel">Suggested posture</span><b>${esc(po.name)}</b><span class="pline">${esc(po.line)}</span>${st.cause ? `<span class="pline">${esc(st.cause)}</span>` : ''}</div>` : ''}
+     ${act && reasons.length ? `<ul class="why">${reasons.map(reasonHtml).join('')}</ul>` : ''}
+     ${!act && whyNot.length ? `<details class="whynot"><summary>${step === 1 ? 'What I checked' : "Why it isn't higher"}</summary><ul class="why">${whyNot.map(reasonHtml).join('')}</ul></details>` : ''}
+     <div class="foot">Showing events that can reach <b>${esc(view.who)}</b>${view.personal ? '' : ' \u00B7 add your area below for a personal read'} \u00B7 Score ${scoreTxt}/100 \u00B7 ${d.sources.filter(x => x.ok).length} of ${d.sources.length} sources working${down ? `, ${down} not` : ''} \u00B7 ${when}
+       ${scoreInfo(sc)}</div>`;
+  // chips open the sources behind each thing that is going on
+  const panels = banner.querySelector('#evpanels');
+  const evOf = k => reasons.concat(world).find(r => r.text === k);
+  const paint = () => {
+    const open = [...banner.querySelectorAll('.evchip[aria-expanded=true]')].map(e => e.dataset.k);
+    panels.innerHTML = open.map(k => { const r = evOf(k); if (!r) return '';
+      const items = (r.sources || []).map(x => {
+        const sub = (x.links || []).map(l => `<li>${link(l.url, l.title)}</li>`).join('');
+        return `<div class="rs"><span class="badge">${KIND[x.kind] || esc(x.kind)}</span>${link(x.url, x.title)}${x.by ? ` <span class="by">${esc(x.by)}</span>` : ''}${sub ? `<ul>${sub}</ul>` : ''}</div>`; }).join('');
+      const why = (r.why || []).length ? '<ul>' + r.why.map(w => `<li>${esc(w)}</li>`).join('') + '</ul>' : '';
+      return `<div class="evpanel"><div class="evt">${esc(r.text)} <span class="by">${esc(r.tag)}</span></div>${why}${items}</div>`; }).join('');
+  };
+  banner.querySelectorAll('.evchip').forEach(b => {
+    if (openEv.has(b.dataset.k)) b.setAttribute('aria-expanded', 'true');
+    b.onclick = () => { b.setAttribute('aria-expanded', b.getAttribute('aria-expanded') === 'true' ? 'false' : 'true'); paint(); };
+  });
+  paint();
+  banner.querySelectorAll('details.r').forEach(e => { if (openKeys.has(e.dataset.k)) e.open = true; });
   const ny = st.near_you;
   document.getElementById('near').innerHTML = ny ? `<div class="panel near" style="--nc:${ny.worst ? COLORS[ny.worst] : 'var(--l0)'}">
       <div class="nm">Near you · ${esc(ny.name)}</div><div class="nh">${esc(ny.headline)}</div>

@@ -24,6 +24,10 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
+import credibility
+import geo
+import trust
+
 UA = "status-board/1.0 (public-data summary page)"
 BROWSER_UA = ("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 "
               "(KHTML, like Gecko) Chrome/124.0 Safari/537.36")
@@ -59,6 +63,8 @@ class Signal:
     tags: list = field(default_factory=list)    # evidence tags read by assess.py (e.g. "official-cyber")
     source: str = ""                             # filled in by the engine
     kind: str = ""                               # gov | private | news | social
+    meta: dict = field(default_factory=dict)     # extra evidence: news trust summary, social claim checks
+    states: list = field(default_factory=list)   # footprint: state codes this is about; empty = nationwide / unknown
 
     def to_dict(self):
         return self.__dict__.copy()
@@ -202,8 +208,7 @@ def ago(ts):
 def faa_nas(ctx):
     """FAA National Airspace System status: ground stops, delays, closures."""
     root = ET.fromstring(fetch("https://nasstatus.faa.gov/api/airport-status-information"))
-    sus = re.compile(r"secur|equip|outage|telecom|atc|staff|unspec|other|power|system|cyber|"
-                     r"threat|tfr|evacu|fire|emergen|national", re.I)
+    sus = re.compile(r"secur|equip|outage|telecom|atc|power|system|cyber|threat|tfr|evacu|fire|emergen|national", re.I)
     stops = [(p.findtext("ARPT") or "?", (p.findtext("Reason") or "").strip())
              for p in root.iter("Program")]
     delays = len(list(root.iter("Ground_Delay")))
@@ -248,8 +253,8 @@ NWS_EVENTS = {
 
 def _nws_tags(event, sev):
     """Evidence tags for the assessment: which NWS products signal a deliberate/strategic threat."""
-    if event == "Law Enforcement Warning":
-        return ["official-physical"]
+    if event == "Law Enforcement Warning":      # routinely used for local manhunts: a threat only when it spans several states
+        return ["official-physical"] if sev >= 2 else []
     if event == "Civil Danger Warning":
         return ["official-physical"] + (["official-strategic"] if sev >= 3 else [])
     if event in ("Nuclear Power Plant Warning", "Radiological Hazard Warning"):
@@ -280,7 +285,7 @@ def nws_alerts(ctx):
                   "url": f.get("id", "")} for f in items[:6]]
         sigs.append(Signal(cat, sev, f"Weather Service alert: {ev} — {len(items)} active in {len(states)} state(s)",
                            "https://alerts.weather.gov/", ", ".join(sorted(states)), key=f"nws:{ev}",
-                           links=links, tags=_nws_tags(ev, sev)))
+                           links=links, tags=_nws_tags(ev, sev), states=sorted(states & geo.VALID_STATES)))
     if not sigs:
         sigs.append(Signal("emergency", 0, "No emergency-level Weather Service alerts right now",
                            "https://alerts.weather.gov/", key="nws:none"))
@@ -290,6 +295,8 @@ def nws_alerts(ctx):
 WEATHER_EVENTS = ("Hurricane Warning", "Tropical Storm Warning", "Tornado Warning", "Blizzard Warning",
                   "Ice Storm Warning", "Winter Storm Warning", "Extreme Wind Warning", "Storm Surge Warning",
                   "Excessive Heat Warning", "High Wind Warning")
+HAZARD_SEVERITY = {"Hurricane Warning": 3, "Storm Surge Warning": 3, "Extreme Wind Warning": 2, "Ice Storm Warning": 2,
+                   "Blizzard Warning": 2}     # official warnings people rearrange their next few days around
 WEATHER_MAJOR = ("Hurricane Warning", "Ice Storm Warning", "Blizzard Warning", "Extreme Wind Warning",
                  "Storm Surge Warning")
 
@@ -307,11 +314,25 @@ def nws_weather(ctx):
     major = (any(counts.get(e) for e in WEATHER_MAJOR) or counts.get("Tornado Warning", 0) >= 5
              or len(feats) >= 150)
     top = ", ".join(f"{k} x{v}" for k, v in sorted(counts.items(), key=lambda kv: -kv[1])[:4])
-    return CollectResult(
-        [Signal("natural", 0, f"Severe weather right now: {len(feats)} active warnings" + (" (major storms)" if major else ""),
-                "https://www.weather.gov/", top or "none", key="nws:weather",
-                tags=["weather-major"] if major else [])],
-        {"weather_warnings": len(feats), "major": major})
+    sigs = [Signal("natural", 0, f"Severe weather right now: {len(feats)} active warnings" + (" (major storms)" if major else ""),
+                   "https://www.weather.gov/", top or "none", key="nws:weather",
+                   tags=["weather-major"] if major else [])]
+    # Major hazards that change people's plans for days (a hurricane, an ice storm) are real events with a footprint.
+    for ev, sev in HAZARD_SEVERITY.items():
+        items = [f for f in feats if f.get("properties", {}).get("event") == ev]
+        if not items:
+            continue
+        st = set()
+        for f in items:
+            for u in (f["properties"].get("geocode") or {}).get("UGC", []):
+                st.add(u[:2])
+        st &= geo.VALID_STATES
+        sigs.append(Signal("natural", sev, f"{ev}: {len(items)} active in {', '.join(sorted(st)) or 'the US'}",
+                           "https://alerts.weather.gov/", "An official Weather Service warning for a hazard that changes plans for days.",
+                           key=f"nws:hazard:{ev}", tags=["official-hazard"], states=sorted(st),
+                           links=[{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110),
+                                   "url": f.get("id", "")} for f in items[:6]]))
+    return CollectResult(sigs, {"weather_warnings": len(feats), "major": major})
 
 
 def swpc(ctx):
@@ -372,6 +393,10 @@ def cisa(ctx):
         t = it["title"]
         if re.search(r"known exploited", t, re.I):
             kev += 1
+        if ed.search(t) and age > 6 * 3600:          # an emergency order is a fresh warning, not a day-and-a-half one
+            continue
+        if csa.search(t) and not ed.search(t) and age > 12 * 3600:
+            continue
         if ed.search(t):
             sigs.append(Signal("cyber", 2, f"CISA EMERGENCY ORDER to federal agencies: {t}", it["link"], key="cisa:" + it["link"],
                                tags=["official-cyber"]))
@@ -434,6 +459,13 @@ def make_cloudflare_radar(token):
     return fn
 
 
+GRID_STATES = {   # which states each grid operator's area covers (approximate: operators' areas are not state-shaped)
+    "ERCO": ["TX"], "CISO": ["CA"], "NYIS": ["NY"], "ISNE": ["CT", "MA", "ME", "NH", "RI", "VT"],
+    "PJM": ["DE", "DC", "IL", "IN", "KY", "MD", "MI", "NJ", "NC", "OH", "PA", "TN", "VA", "WV"],
+    "MISO": ["AR", "IL", "IN", "IA", "KY", "LA", "MI", "MN", "MS", "MO", "MT", "ND", "SD", "TX", "WI"],
+    "SWPP": ["AR", "IA", "KS", "LA", "MN", "MO", "MT", "NE", "NM", "ND", "OK", "SD", "TX", "WY"],
+    "SOCO": ["AL", "FL", "GA", "MS"], "TVA": ["AL", "GA", "KY", "MS", "NC", "TN", "VA"], "US48": [],
+}
 GRID_REGIONS = {
     "US48": "Lower 48 (national)", "PJM": "PJM (Mid-Atlantic/Midwest)", "MISO": "MISO (Midwest)",
     "ERCO": "ERCOT (Texas)", "CISO": "CAISO (California)", "NYIS": "New York", "ISNE": "New England",
@@ -488,7 +520,7 @@ def make_eia_grid(key):
                                f"Electricity use in {label} is {ratio:.0%} of what was forecast ({v['D']:,.0f} vs {v['DF']:,.0f} MW)",
                                "https://www.eia.gov/electricity/gridmonitor/dashboard/electric_overview/US48/US48",
                                f"Latest data is from {p} UTC (about 1-2 hours behind). A big, lasting drop can mean widespread power outages.",
-                               key=f"eia:{resp}"))
+                               key=f"eia:{resp}", states=GRID_STATES.get(resp, [])))
         if not sigs:
             raise RuntimeError("EIA response had no usable demand/forecast pairs")
         summary["regions_low"] = lows
@@ -649,36 +681,54 @@ def make_news(q):
                 followups += 1
             else:
                 kept.append(i)
-        recent = kept
-        n = len({i["pub"] for i in recent})
+        # Stories about places overseas are WORLD context (a quiet line on the page), never evidence for the US alert scale.
+        recent, abroad = geo.split(kept)
+        if q.get("scope") == "world":                       # a whole query that is about the world, not about home
+            recent, abroad = [], kept
+        world_sigs = []
+        if abroad:
+            winfo = trust.summarize(abroad, q["category"], ctx.cfg)
+            world_sigs.append(Signal("world", 0, f"{q['name']}: {winfo['clusters']} reports from {len({i['pub'] for i in abroad})} outlets overseas",
+                                     link, "About places outside the US. Shown as context only; it never moves the alert scale.",
+                                     key="world:" + q["name"],
+                                     links=[{"title": f"{short(i['title'], 100)} — {i['pub']}", "url": i["link"]} for i in abroad[:6]],
+                                     meta=winfo))
+        n = len({i["pub"] for i in recent})                 # distinct outlets (shown, and kept for the filter checks)
+        info = trust.summarize(recent, q["category"], ctx.cfg)   # who is reporting, with copies counted once
+        n_eff = info["n_eff"]
         if used == "Bing" and raw_n == 0:
             # Bing's index lags by hours, so an empty Bing result proves nothing. Report the source as
             # failed (keeps the previous alert alive) rather than a false "no coverage".
             raise RuntimeError(f"Google News unavailable ({err1}); Bing fallback cannot confirm last-hour coverage")
         key = "news:" + q["name"]
-        skey = "newsf:" + q["name"]      # filtered counts: separate history so old unfiltered baselines don't linger
-        rate = ctx.store.rate_severity(skey, n, q.get("thresholds"), ctx.cfg.get("social_min_count", 5))
-        ctx.store.record(skey, n)
+        skey = "newsw:" + q["name"]      # trust-weighted independent reports: its own history (old counts used other units)
+        rate = ctx.store.rate_severity(skey, n_eff, q.get("thresholds"), ctx.cfg.get("social_min_count", 5))
+        ctx.store.record(skey, n_eff)
         sev = min(rate.sev, q.get("max_sev", 3))
         ignored = unrelated + followups
         if n == 0:
-            return CollectResult([], {"outlets_1h": 0, "ignored": ignored})
+            return CollectResult(world_sigs, {"outlets_1h": 0, "ignored": ignored, "overseas_1h": len(abroad)})
         base = (f"usually about {rate.baseline:g}" if rate.baseline is not None
                 else f"still learning what is normal for this ({rate.n} of 8 readings)")
+        base += (f" · {info['clusters']} independent report(s) from {n} outlet(s), {info['t1']} from top-tier outlets"
+                 + (f", {info['syndicated']} copies of the same story counted once" if info["syndicated"] else ""))
         if ignored:
             base += (f" · ignored {unrelated} unrelated and {followups} follow-up stor"
                      f"{'y' if unrelated + followups == 1 else 'ies'} about events already over")
         if used == "Bing":
             base += " · via Bing (Google is limiting requests)"
         links = [{"title": f"{short(i['title'], 100)} — {i['pub']}", "url": i["link"]} for i in recent[:6]]
-        return CollectResult([Signal(q["category"], sev, f"News: {q['name']} — {n} news outlets covering this in the last hour",
-                                     link, base, key=key, links=links)], {"outlets_1h": n, "ignored": ignored})
+        return CollectResult([Signal(q["category"], sev, f"News: {q['name']} — {info['clusters']} independent reports from {n} outlets in the last hour",
+                                     link, base, key=key, links=links, meta=info,
+                                     states=geo.states_for([i["title"] for i in recent]))] + world_sigs,
+                             {"outlets_1h": n, "independent_1h": info["clusters"], "top_tier_1h": info["t1"], "ignored": ignored,
+                              "overseas_1h": len(abroad)})
     return fn
 
 
 # ---------------------------------------------------------------------- social
 
-def _emit_social(ctx, platform, home, counts, samples, covered, labelmap):
+def _emit_social(ctx, platform, home, counts, samples, covered, labelmap, claims=None):
     """Turn per-category post counts into signals, judged against learned baselines."""
     sigs = []
     minc = ctx.cfg.get("social_min_count", 5)
@@ -692,8 +742,9 @@ def _emit_social(ctx, platform, home, counts, samples, covered, labelmap):
         sev = min(rate.sev, 2)
         base = (f"usually about {rate.baseline:g} per hour" if rate.baseline is not None
                 else f"still learning what is normal for this ({rate.n} of 8 readings)")
+        posts = sorted((claims or {}).get(cat, []), key=lambda x: -x["engagement"])[:5]   # the spreading ones (see credibility.py)
         sigs.append(Signal(cat, sev, f"{platform}: about {c} posts per hour mentioning {labelmap.get(cat, cat)}",
-                           home, base, key=key, links=samples.get(cat, [])[:5]))
+                           home, base, key=key, links=samples.get(cat, [])[:5], meta={"posts": posts} if posts else {}))
     return sigs
 
 
@@ -730,7 +781,7 @@ def make_reddit(cfg):
 
 def make_mastodon(cfg):
     def fn(ctx):
-        counts, samples, ok, saturated = {}, {}, 0, 0
+        counts, samples, ok, saturated, claims = {}, {}, 0, 0, {}
         now = time.time()
         for tag, cat in cfg["mastodon_tags"].items():
             try:
@@ -746,17 +797,27 @@ def make_mastodon(cfg):
             for p in recent[:3]:
                 samples.setdefault(cat, []).append(
                     {"title": f"#{tag}: {short(strip_html(p.get('content')), 110)}", "url": p.get("url", "")})
+            for p in recent:
+                cnt = {"likes": p.get("favourites_count", 0), "reposts": p.get("reblogs_count", 0),
+                       "quotes": p.get("quotes_count", 0), "replies": p.get("replies_count", 0)}
+                if credibility.engagement_of(cnt) >= cfg.get("social_viral_min", credibility.VIRAL_MIN) / 4 \
+                        and geo.classify(strip_html(p.get("content"))) != "foreign":
+                    a = p.get("account") or {}
+                    claims.setdefault(cat, []).append(credibility.make_candidate(
+                        "Mastodon", p.get("url", ""), strip_html(p.get("content")), cnt,
+                        {"created": a.get("created_at"), "followers": a.get("followers_count"), "posts": a.get("statuses_count"),
+                         "bot": bool(a.get("bot")), "handle": a.get("acct", "")}))
         if ok == 0:
             raise RuntimeError("Mastodon unreachable")
         sigs = _emit_social(ctx, "Mastodon", "https://mastodon.social/explore", counts, samples,
-                            sorted(set(cfg["mastodon_tags"].values())), CATEGORIES)
+                            sorted(set(cfg["mastodon_tags"].values())), CATEGORIES, claims)
         return CollectResult(sigs, {"tags_ok": f"{ok}/{len(cfg['mastodon_tags'])}", "saturated_tags": saturated})
     return fn
 
 
 def make_bluesky(cfg):
     def fn(ctx):
-        counts, samples, ok = {}, {}, 0
+        counts, samples, ok, claims = {}, {}, 0, {}
         since = datetime.fromtimestamp(time.time() - 3600, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
         for q in cfg["bluesky_queries"]:
             url = ("https://api.bsky.app/xrpc/app.bsky.feed.searchPosts?q=" + urllib.parse.quote(q["q"])
@@ -775,12 +836,101 @@ def make_bluesky(cfg):
                 samples.setdefault(cat, []).append(
                     {"title": f"{q['q']}: {short(p['record'].get('text', ''), 110)}",
                      "url": f"https://bsky.app/profile/{handle}/post/{rkey}"})
+            for p in posts:
+                cnt = {"likes": p.get("likeCount", 0), "reposts": p.get("repostCount", 0),
+                       "quotes": p.get("quoteCount", 0), "replies": p.get("replyCount", 0)}
+                if credibility.engagement_of(cnt) >= cfg.get("social_viral_min", credibility.VIRAL_MIN) / 4 \
+                        and geo.classify((p.get("record") or {}).get("text", "")) != "foreign":
+                    a = p.get("author") or {}
+                    claims.setdefault(cat, []).append(credibility.make_candidate(
+                        "Bluesky", f"https://bsky.app/profile/{a.get('handle', '')}/post/{p['uri'].rsplit('/', 1)[-1]}",
+                        (p.get("record") or {}).get("text", ""), cnt,
+                        {"created": a.get("createdAt"), "followers": None, "posts": None, "bot": False,
+                         "handle": a.get("handle", ""), "did": a.get("did", "")}))
             time.sleep(0.5)
         if ok == 0:
             raise RuntimeError("Bluesky search unreachable")
+        # Search results lack follower counts, so look up just the accounts behind the spreading posts (one batched call).
+        top = sorted((c for lst in claims.values() for c in lst), key=lambda c: -c["engagement"])[:25]
+        dids = list(dict.fromkeys(c["acct"]["did"] for c in top if c["acct"].get("did")))
+        if dids:
+            try:
+                prof = fetch_json("https://api.bsky.app/xrpc/app.bsky.actor.getProfiles?" +
+                                  "&".join("actors=" + urllib.parse.quote(d) for d in dids[:25])).get("profiles", [])
+                by = {x["did"]: x for x in prof}
+                for c in top:
+                    x = by.get(c["acct"].get("did"))
+                    if x:
+                        c["acct"]["followers"], c["acct"]["posts"] = x.get("followersCount"), x.get("postsCount")
+            except Exception:
+                pass                                   # unknown account facts are neutral, never an error
         sigs = _emit_social(ctx, "Bluesky", "https://bsky.app/search", counts, samples,
-                            sorted({q["category"] for q in cfg["bluesky_queries"]}), CATEGORIES)
+                            sorted({q["category"] for q in cfg["bluesky_queries"]}), CATEGORIES, claims)
         return CollectResult(sigs, {"queries_ok": f"{ok}/{len(cfg['bluesky_queries'])}"})
+    return fn
+
+
+# ----------------------------------------------------------------------- Drudge Report
+
+DRUDGE_URL = "https://www.drudgereport.com/"
+_A_RX = re.compile(r'<a\s[^>]*?href="(https?://[^"]+)"[^>]*>(.*?)</a>', re.I | re.S)
+
+
+def parse_drudge(raw):
+    """Front-page links in page order (the first is the main headline): [{"title", "url", "outlet", "tier", "pos"}]."""
+    page = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+    out, seen = [], set()
+    for url, inner in _A_RX.findall(page):
+        title = re.sub(r"\s+", " ", strip_html(inner)).strip()
+        host = re.sub(r"^https?://", "", url.lower()).split("/")[0]
+        if not title or "drudgereport.com" in host or url in seen:
+            continue
+        seen.add(url)
+        outlet = trust.outlet_from_url(url)
+        out.append({"title": title, "url": url, "outlet": outlet, "tier": trust.tier_of(outlet), "pos": len(out)})
+    return out
+
+
+def make_drudge(cfg):
+    """Drudge Report's front page as a POINTER, not a witness. Its editors pick stories and its links often go to
+    sites of mixed quality, so it is judged by WHO each headline links to (trust.py), counts for at most severity 1, and
+    only when it is making a theme of a topic (several headlines, some of them linking to outlets you trust). Its job is
+    to show you what it is leading with and where to go look."""
+    d = cfg.get("drudge", {})
+    kw = {c: re.compile(p, re.I) for c, p in d.get("keywords", {}).items()}
+    need_n, need_trusted = d.get("min_headlines", 3), d.get("min_trusted", 2)
+
+    def fn(ctx):
+        links = parse_drudge(fetch(DRUDGE_URL, browser=True))[:60]
+        if len(links) < 15:
+            raise RuntimeError("Drudge Report page layout changed (too few headlines found)")
+        sigs = []
+        for cat, rx in kw.items():
+            hits = [l for l in links[:45] if rx.search(l["title"])]
+            hits_all = hits
+            hits = [l for l in hits if geo.classify(l["title"]) != "foreign"]
+            abroad = [l for l in hits_all if geo.classify(l["title"]) == "foreign"]
+            if abroad:
+                sigs.append(Signal("world", 0, f"Drudge Report: {len(abroad)} front-page headline(s) about {CATEGORIES[cat].lower()} overseas",
+                                   DRUDGE_URL, "About places outside the US. Context only.", key="world:drudge:" + cat,
+                                   links=[{"title": f"{short(l['title'], 100)} — {l['outlet']}", "url": l["url"]} for l in abroad[:6]]))
+            if not hits:
+                continue
+            trusted = [l for l in hits if l["tier"] <= 2]
+            sev = 1 if (len(hits) >= need_n and len(trusted) >= need_trusted) else 0
+            shown = []
+            for l in hits[:6]:
+                flag = "" if l["tier"] <= 2 else " [unvetted source]" if l["tier"] == 3 else " [low-trust source: a lead to check, not proof]"
+                shown.append({"title": f"{short(l['title'], 100)} — {l['outlet']}{flag}", "url": l["url"]})
+            info = trust.summarize([{"title": l["title"], "pub": l["outlet"]} for l in hits], cat, ctx.cfg)
+            sigs.append(Signal(cat, sev, f"Drudge Report: {len(hits)} front-page headline(s) about {CATEGORIES[cat].lower()}, "
+                                         f"{len(trusted)} linking to outlets with a good record",
+                               DRUDGE_URL, "A pointer, not evidence: Drudge picks stories and links out, sometimes to weak sources. "
+                                           "Click through and judge the linked outlet.", key="drudge:" + cat,
+                               links=shown, meta=info))
+        top = links[0]
+        return CollectResult(sigs, {"headlines": len(links), "on_topic": sum(len(s.links) > 0 for s in sigs if s.category != "world"),
+                                    "main_headline": short(top["title"], 90), "main_source": top["outlet"]})
     return fn
 
 
@@ -1123,4 +1273,6 @@ def build_collectors(cfg, data_dir=None):
                                 iv.get("local_power", 300), make_local_power(loc)))
     for q in cfg["news_queries"]:
         cs.append(Collector("News: " + q["name"], "news", "https://news.google.com/", iv["news"], make_news(q)))
+    if cfg.get("drudge", {}).get("enabled"):
+        cs.append(Collector("Drudge Report front page", "news", DRUDGE_URL, iv.get("drudge", 600), make_drudge(cfg)))
     return cs
