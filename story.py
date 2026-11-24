@@ -91,9 +91,9 @@ _DIR_ORDER = {"up": 0, "soft": 1, "down": 2, "warn": 3}
 # The five-step scale shown at the top right. Internally the engine still has four levels (and logs them by their old
 # names); the page shows these. Step 5 is never inferred: it needs a government source to say so itself.
 STEPS = [
-    ("Baseline", "Nothing unusual."),
-    ("Watch", "Something unusual, not confirmed."),
-    ("Concern", "A real problem in more than one area; the cause isn't clear yet."),
+    ("Baseline", "Nothing unusual is happening."),
+    ("Watch", "Something unusual is happening, but it is not confirmed."),
+    ("Concern", "There is a real problem in more than one area, and the cause isn't clear yet."),
     ("Likely event", "A serious, spreading event is likely under way."),
     ("Confirmed", "Officials confirm a major threat or hazard."),
 ]
@@ -118,7 +118,7 @@ def _cause(res):
 
 def _scale(label, cats):
     if label == "NO DATA":
-        return {"step": None, "name": "No data", "line": "Can't see well enough. This is not an all-clear.",
+        return {"step": None, "name": "No data", "line": "Too many sources are down to see clearly, so this is not an all-clear.",
                 "names": [n for n, _ in STEPS]}
     step = _STEP_OF[label]
     if step == 4 and any(s.kind == "gov" and ("official-strategic" in (s.tags or []) and s.severity >= 2

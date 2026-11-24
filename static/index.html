@@ -104,8 +104,9 @@
   .hero { display:flex; gap:14px; align-items:flex-start; }
   .hero .left { flex:1; min-width:0; }
   .eyebrow { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); font-weight:700; }
-  .levelname { font-size:30px; font-weight:800; line-height:1.1; margin:4px 0 6px; color:var(--lc,var(--l0)); }
-  .levelname .num { display:inline-block; min-width:1.1em; margin-right:6px; opacity:.9; }
+  .purpose { font-size:13px; line-height:1.4; color:var(--dim); margin:0 0 10px; }
+  .levelname { font-size:26px; font-weight:800; line-height:1.15; margin:0 0 6px; color:var(--lc,var(--l0)); }
+  .levelname .cs { color:var(--text); font-weight:700; }
   .desc { font-size:16px; line-height:1.45; margin:0; }
   .evchip { font:inherit; font-size:14px; font-weight:700; padding:2px 10px; margin:2px 2px 2px 0; border-radius:99px; cursor:pointer;
             border:1px solid var(--lc,var(--l1)); background:transparent; color:var(--text); }
@@ -125,6 +126,10 @@
                    box-shadow:0 0 0 2px var(--bg), 0 0 0 4px var(--sc); margin:2px 0; }
   ol.scale li.na { opacity:.4; }
   .scalenote { font-size:10px; color:var(--dim); margin-top:4px; width:124px; }
+  @media (max-width:520px) {
+    .hero { flex-direction:column; gap:12px; }
+    ol.scale, .scalenote { width:100%; max-width:240px; }
+  }
   .worldline { margin-top:12px; font-size:13px; color:var(--dim); --lc:var(--lx); }
   .worldline .evchip { font-size:12px; padding:1px 9px; border-color:var(--line); color:var(--dim); }
   .whynot { margin-top:12px; font-size:13px; }
@@ -155,6 +160,7 @@
 </head>
 <body>
 <main>
+  <p class="purpose">This page watches public sources for events that could affect you, and gives an informed opinion on whether to consider changing your immediate plans or preparations.</p>
   <div class="warn" id="warn"></div>
   <div class="banner" id="banner"><div class="lvl">Connecting…</div></div>
   <div id="near"></div>
@@ -230,7 +236,7 @@ function sigHtml(s) {
     ${sub ? `<ul class="links">${sub}</ul>` : ''}</div>`;
 }
 
-function renderAssess(x) {
+function renderAssess(x, sc) {
   const el = document.getElementById('assess');
   if (!x) { el.innerHTML = ''; return; }
   const maxS = Math.max(6, ...x.hypotheses.map(h => h.score));
@@ -248,6 +254,7 @@ function renderAssess(x) {
     ${ex ? `<div class="meta" style="margin:0 0 6px">These look explained by something else: ${ex}</div>` : ''}
     <div class="meta" style="margin:8px 0 2px">Possible explanations. A longer bar means a better fit. Tap one to see why:</div>
     <div>${rows}</div>
+    ${sc && sc.value !== null && sc.value !== undefined ? `<div class="meta" style="margin-top:8px">Severity score: <b>${sc.value}</b>/100</div>${scoreInfo(sc)}` : ''}
     ${verify && x.level >= 1 ? `<div class="meta" style="margin-top:8px">Check these yourself:</div><ul class="links">${verify}</ul>` : ''}</details>`;
 }
 
@@ -362,7 +369,7 @@ function render(d) {
   const openKeys = new Set([...banner.querySelectorAll('details.r[open]')].map(e => e.dataset.k));
   const openEv = new Set([...banner.querySelectorAll('.evchip[aria-expanded=true]')].map(e => e.dataset.k));
   banner.className = 'banner story';
-  const sc = a.score, scoreTxt = sc && sc.value !== null && sc.value !== undefined ? sc.value : '?';
+  const sc = a.score;
   const po = st.posture || {}, scl = st.scale || {step: null, name: a.label, line: st.status_line || '', names: []};
   const step = scl.step, act = step !== null && step >= 3;           // step 3+ suggests doing something
   const STEPCOL = {1:'var(--l0)', 2:'var(--l1)', 3:'var(--l2)', 4:'var(--l3)', 5:'#7a0b0b'};
@@ -377,18 +384,19 @@ function render(d) {
   // One sentence. For Normal/Watch (nothing to do) the sentence carries a tappable chip for each thing going on.
   let desc;
   if (step === 2 && events.length) {
-    desc = (confirmedBy ? 'Something unusual: ' : 'Something unusual, none of it confirmed by an official source: ')
-         + events.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`).join(' ');
+    desc = (confirmedBy ? 'Something unusual is happening: ' : 'Something unusual is happening, but no official source has confirmed it: ')
+         + events.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`).join(' ') + '.';
   } else if (step === 1) {
     const ok = reasons.find(r => r.tag === 'Checked' && r.sources.length);
-    desc = 'Nothing unusual.' + (ok ? ` <button class="evchip" data-k="${esc(ok.text)}" aria-expanded="false">${esc(ok.text)}</button>` : '');
+    desc = esc(scl.line) + (ok ? ` <button class="evchip" data-k="${esc(ok.text)}" aria-expanded="false">${esc(ok.text)}</button>` : '');
   } else desc = esc(scl.line);
-  const scale = (scl.names || []).map((n, i) => `<li class="${step === i + 1 ? 'on' : step === null ? 'na' : ''}" style="--sc:${STEPCOL[i + 1]}"><b>${i + 1}</b>${esc(n)}</li>`).join('');
+  // worst step on top, Baseline at the bottom
+  const scale = (scl.names || []).map((n, i) => `<li class="${step === i + 1 ? 'on' : step === null ? 'na' : ''}" style="--sc:${STEPCOL[i + 1]}"${step === i + 1 ? ' aria-current="step"' : ''}><b>${i + 1}</b>${esc(n)}</li>`).reverse().join('');
+  const heading = step ? `Level ${step} ${esc(scl.name)}` : esc(scl.name);
   const whyNot = reasons.filter(r => step === 1 ? true : (r.dir === 'down' || r.dir === 'warn'));
   banner.innerHTML =
     `<div class="hero"><div class="left">
-        <div class="eyebrow">Current status</div>
-        <div class="levelname"><span class="num">${step || '?'}</span>${esc(scl.name)}</div>
+        <h1 class="levelname"><span class="cs">Current status:</span> ${heading}</h1>
         <p class="desc">${desc}</p>
       </div>
       <div><ol class="scale" aria-label="Alert scale">${scale}</ol>${step === null ? '<div class="scalenote">No reading: not an all-clear.</div>' : ''}</div></div>
@@ -397,8 +405,7 @@ function render(d) {
      ${act && po.name ? `<div class="posture" style="margin-top:14px"><span class="plabel">Suggested posture</span><b>${esc(po.name)}</b><span class="pline">${esc(po.line)}</span>${st.cause ? `<span class="pline">${esc(st.cause)}</span>` : ''}</div>` : ''}
      ${act && reasons.length ? `<ul class="why">${reasons.map(reasonHtml).join('')}</ul>` : ''}
      ${!act && whyNot.length ? `<details class="whynot"><summary>${step === 1 ? 'What I checked' : "Why it isn't higher"}</summary><ul class="why">${whyNot.map(reasonHtml).join('')}</ul></details>` : ''}
-     <div class="foot">Showing events that can reach <b>${esc(view.who)}</b>${view.personal ? '' : ' \u00B7 add your area below for a personal read'} \u00B7 Score ${scoreTxt}/100 \u00B7 ${d.sources.filter(x => x.ok).length} of ${d.sources.length} sources working${down ? `, ${down} not` : ''} \u00B7 ${when}
-       ${scoreInfo(sc)}</div>`;
+     <div class="foot">Showing events that can reach <b>${esc(view.who)}</b>${view.personal ? '' : ' \u00B7 add your area below for a personal read'} \u00B7 ${d.sources.filter(x => x.ok).length} of ${d.sources.length} sources working${down ? `, ${down} not` : ''} \u00B7 ${when}</div>`;
   // chips open the sources behind each thing that is going on
   const panels = banner.querySelector('#evpanels');
   const evOf = k => reasons.concat(world).find(r => r.text === k);
@@ -423,7 +430,7 @@ function render(d) {
       ${ny.lines.length ? '<ul>' + ny.lines.map(l => `<li>${link(l.url, l.text)}</li>`).join('') + '</ul>' : ''}</div>` : '';
   if (HOSTED && !ny) browserNear();
   document.title = (lvl >= 2 ? '⚠ ' : '') + 'Status ' + a.label;
-  renderAssess(a.assessment);
+  renderAssess(a.assessment, sc);
 
   const cats = Object.entries(a.categories).filter(([id]) => id !== 'local').sort((x, y) => y[1].level - x[1].level || x[1].label.localeCompare(y[1].label));
   const openIds = new Set([...document.querySelectorAll('details.cat[open]')].map(e => e.dataset.id));
