@@ -399,6 +399,14 @@ def assess(cats, mem, params, now, slow_fn=None):
                  for k in LIFELINE + ("cyber", "nuclear")     # not 'security': daily local incidents are not national alarms
                  if k not in explained)                       # an explained disruption does not raise the alarm
     any_active = any(cats[k]["level"] >= 1 for k in cats)
+    # An official cyber directive backs ONE confirmed disruption only if that disruption is in the sector the directive
+    # names, or is a general internet / cloud failure. An unrelated outage elsewhere does not make the pair "likely".
+    cyber_titles = " | ".join(x.title for x in prim_sigs if "official-cyber" in (x.tags or []))
+    sectors = {k for k in ("power", "telecom", "internet", "finance", "aviation") if re.search(AREA_WORDS[k], cyber_titles, re.I)}
+    if re.search(r"energy|\bics\b|scada|industrial control|pipeline", cyber_titles, re.I):
+        sectors.add("power")
+    sector_ok = any(d == "internet" or d in sectors for d in sig)
+    official_strong = official_strong and (lead_attack != "cyber" or sector_ok)
     attack_pattern = n_conf >= 1 and A >= T3 and A - B >= margin
     threat_here = flags["threat:cyber"] or flags["threat:physical"]
     rules = []                    # every condition that holds, so a false alarm can be traced to the rule that caused it

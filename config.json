@@ -53,40 +53,30 @@
       "url": "https://www.cloudflarestatus.com"
     },
     {
+      "name": "Akamai",
+      "url": "https://www.akamaistatus.com"
+    },
+    {
       "name": "GitHub",
       "url": "https://www.githubstatus.com"
-    },
-    {
-      "name": "Twilio",
-      "url": "https://status.twilio.com"
-    },
-    {
-      "name": "Anthropic",
-      "url": "https://status.claude.com"
-    },
-    {
-      "name": "Discord",
-      "url": "https://discordstatus.com"
-    },
-    {
-      "name": "Zoom",
-      "url": "https://www.zoomstatus.com"
-    },
-    {
-      "name": "Reddit",
-      "url": "https://www.redditstatus.com"
     },
     {
       "name": "Atlassian",
       "url": "https://status.atlassian.com"
     },
     {
-      "name": "Shopify",
-      "url": "https://www.shopifystatus.com"
+      "name": "Twilio",
+      "url": "https://status.twilio.com"
     },
     {
-      "name": "Dropbox",
-      "url": "https://status.dropbox.com"
+      "name": "Stripe",
+      "url": "https://www.stripestatus.com",
+      "category": "finance"
+    },
+    {
+      "name": "Square",
+      "url": "https://www.issquareup.com",
+      "category": "finance"
     }
   ],
   "news_queries": [

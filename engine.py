@@ -30,6 +30,7 @@ LEVELS = {0: "NORMAL", 1: "WATCH", 2: "ELEVATED", 3: "SUSPECTED ATTACK"}
 # for at most Concern. A warning that covers WIDE_STATES or more states, or whose own wording is explicitly
 # national/strategic, is treated as national.
 WIDE_STATES = 10
+FEDERAL_SHARE = 2 / 3        # when this share of the dark sources are federal feeds, the lost-sight alarm reads as a shutdown
 NATIONAL_RX = re.compile(r"missile|ballistic|nuclear (?:attack|strike|detonation|explosion|threat)|national emergency|"
                          r"presidential (?:alert|message)|nationwide|entire (?:country|nation)|all states", re.I)
 
@@ -282,6 +283,12 @@ class Monitor:
             self.store.extra["mem"] = mem
             self._alert(ov["analysis"]["level"], main["cats"], now, ov["analysis"]["assessment"]["verdict"], ov["analysis"])
 
+    def _is_federal(self, name):
+        """A source run by the US federal government (its own .gov site)."""
+        c = next((c for c in self.collectors if c.name == name), None)
+        host = re.sub(r"^https?://", "", (getattr(c, "home", "") or "")).split("/")[0].lower()
+        return bool(c) and (host.endswith(".gov") or (c.kind == "gov" and not host))
+
     def _view(self, key, sigs, now, ok_n, total, down, blind, lost_suddenly, fail_n, world):
         """Everything for one personal view: category levels, the assessment, the story and the score."""
         cats = {k: {"label": v, "level": 0, "signals": [], "kinds": set()} for k, v in CATEGORIES.items()}
@@ -327,12 +334,21 @@ class Monitor:
             reasons.append("Social media is talking about " + ", ".join(chatter[:3]) + ", but no news outlet, "
                            "government source or status page backs it up. Treated as a hint only.")
         if lost_suddenly:
-            level = max(level, 2)
-            res.setdefault("rules", []).append("lost sight of many sources at once")
+            fed = [n for n in down if self._is_federal(n)]
+            mostly_fed = len(down) > 0 and len(fed) >= FEDERAL_SHARE * len(down)
             since = time.strftime("%H:%M", time.localtime(self._lost_since or now))
-            reasons.insert(0, f"Lost sight of {fail_n} sources within minutes of each other at {since} while your own internet works"
-                              + ("" if now - (self._lost_since or now) < 600 else " (still down)")
-                              + ". That can be a big outage or attack, or a fault on this end: check for yourself.")
+            if mostly_fed:      # government websites going dark together looks like a shutdown or a federal outage
+                level = max(level, 1)
+                res.setdefault("rules", []).append("lost sight of many sources at once (mostly federal)")
+                reasons.insert(0, f"Lost sight of {fail_n} sources at {since}, mostly federal government feeds ({len(fed)} of "
+                                  f"{len(down)}), while your own internet works. That usually means a government shutdown "
+                                  "or a federal website outage rather than a wider failure: check for yourself.")
+            else:
+                level = max(level, 2)
+                res.setdefault("rules", []).append("lost sight of many sources at once")
+                reasons.insert(0, f"Lost sight of {fail_n} sources within minutes of each other at {since} while your own internet works"
+                                  + ("" if now - (self._lost_since or now) < 600 else " (still down)")
+                                  + ". That can be a big outage or attack, or a fault on this end: check for yourself.")
         elif blind:
             reasons.insert(0, f"Only {ok_n} of {total} sources are reachable, so the real status is unknown. This is NOT an all-clear.")
             level = 0

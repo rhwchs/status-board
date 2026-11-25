@@ -51,7 +51,7 @@ TIER4 |= {"infowars", "natural news", "naturalnews", "before it's news", "before
           "stillness in the storm", "x", "twitter", "truth social", "telegram", "facebook", "tiktok", "reddit"}
 # website domain -> outlet name, so a LINK (e.g. from Drudge Report's front page) can be judged by who it points to
 DOMAINS = {
-    "nytimes.com": "The New York Times", "cnn.com": "CNN", "theguardian.com": "The Guardian", "ft.com": "Financial Times",
+    "nytimes.com": "The New York Times", "cnn.com": "CNN", "msnbc.com": "MSNBC", "ms.now": "MS NOW", "theguardian.com": "The Guardian", "ft.com": "Financial Times",
     "axios.com": "Axios", "apnews.com": "Associated Press", "reuters.com": "Reuters", "bbc.co.uk": "BBC News",
     "bbc.com": "BBC News", "washingtonpost.com": "The Washington Post", "wsj.com": "Wall Street Journal",
     "bloomberg.com": "Bloomberg", "npr.org": "NPR", "pbs.org": "PBS", "politico.com": "Politico", "usatoday.com": "USA Today",

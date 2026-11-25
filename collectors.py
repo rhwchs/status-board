@@ -298,9 +298,31 @@ def nws_alerts(ctx):
 
 WEATHER_EVENTS = ("Hurricane Warning", "Tropical Storm Warning", "Tornado Warning", "Blizzard Warning",
                   "Ice Storm Warning", "Winter Storm Warning", "Extreme Wind Warning", "Storm Surge Warning",
-                  "Excessive Heat Warning", "High Wind Warning")
+                  "Excessive Heat Warning", "Extreme Heat Warning", "High Wind Warning", "Flash Flood Warning",
+                  "Fire Warning", "Evacuation Immediate", "Extreme Cold Warning")
 HAZARD_SEVERITY = {"Hurricane Warning": 3, "Storm Surge Warning": 3, "Extreme Wind Warning": 2, "Ice Storm Warning": 2,
-                   "Blizzard Warning": 2}     # official warnings people rearrange their next few days around
+                   "Blizzard Warning": 2, "Fire Warning": 2, "Evacuation Immediate": 2,
+                   "Extreme Cold Warning": 2}  # official warnings people rearrange their next few days around
+# The "emergency" tag inside an ordinary warning: catastrophic damage threat (Tornado Emergency, Flash Flood Emergency)
+EMERGENCY_TAGS = {"Tornado Warning": ("tornadoDamageThreat", "Tornado Emergency"),
+                  "Flash Flood Warning": ("flashFloodDamageThreat", "Flash Flood Emergency")}
+
+
+def _states_of(items):
+    st = set()
+    for f in items:
+        for u in (f["properties"].get("geocode") or {}).get("UGC", []):
+            st.add(u[:2])
+    return st & geo.VALID_STATES
+
+
+def _hazard_signal(ev, sev, items):
+    st = _states_of(items)
+    return Signal("natural", sev, f"{ev}: {len(items)} active in {', '.join(sorted(st)) or 'the US'}",
+                  "https://alerts.weather.gov/", "An official Weather Service warning for a hazard that changes plans for days.",
+                  key=f"nws:hazard:{ev}", tags=["official-hazard"], states=sorted(st), meta={"event": ev},
+                  links=[{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110),
+                          "url": f.get("id", "")} for f in items[:6]])
 WEATHER_MAJOR = ("Hurricane Warning", "Ice Storm Warning", "Blizzard Warning", "Extreme Wind Warning",
                  "Storm Surge Warning")
 
@@ -324,18 +346,13 @@ def nws_weather(ctx):
     # Major hazards that change people's plans for days (a hurricane, an ice storm) are real events with a footprint.
     for ev, sev in HAZARD_SEVERITY.items():
         items = [f for f in feats if f.get("properties", {}).get("event") == ev]
-        if not items:
-            continue
-        st = set()
-        for f in items:
-            for u in (f["properties"].get("geocode") or {}).get("UGC", []):
-                st.add(u[:2])
-        st &= geo.VALID_STATES
-        sigs.append(Signal("natural", sev, f"{ev}: {len(items)} active in {', '.join(sorted(st)) or 'the US'}",
-                           "https://alerts.weather.gov/", "An official Weather Service warning for a hazard that changes plans for days.",
-                           key=f"nws:hazard:{ev}", tags=["official-hazard"], states=sorted(st), meta={"event": ev},
-                           links=[{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110),
-                                   "url": f.get("id", "")} for f in items[:6]]))
+        if items:
+            sigs.append(_hazard_signal(ev, sev, items))
+    for ev, (param, name) in EMERGENCY_TAGS.items():
+        items = [f for f in feats if f.get("properties", {}).get("event") == ev
+                 and "CATASTROPHIC" in [str(x).upper() for x in ((f["properties"].get("parameters") or {}).get(param) or [])]]
+        if items:
+            sigs.append(_hazard_signal(name, 2, items))
     return CollectResult(sigs, {"weather_warnings": len(feats), "major": major})
 
 
@@ -470,6 +487,7 @@ GRID_STATES = {   # which states each grid operator's area covers (approximate: 
     "SWPP": ["AR", "IA", "KS", "LA", "MN", "MO", "MT", "NE", "NM", "ND", "OK", "SD", "TX", "WY"],
     "SOCO": ["AL", "FL", "GA", "MS"], "TVA": ["AL", "GA", "KY", "MS", "NC", "TN", "VA"], "US48": [],
 }
+GRID_MIN_REPORTING = 0.85      # share of grid operators that must report the newest hour before the national total counts
 GRID_REGIONS = {
     "US48": "Lower 48 (national)", "PJM": "PJM (Mid-Atlantic/Midwest)", "MISO": "MISO (Midwest)",
     "ERCO": "ERCOT (Texas)", "CISO": "CAISO (California)", "NYIS": "New York", "ISNE": "New England",
@@ -501,6 +519,13 @@ def make_eia_grid(key):
             except (TypeError, ValueError, KeyError):
                 continue
             by.setdefault(r["respondent"], {}).setdefault(r["period"], {})[r["type"]] = v
+        # How many grid operators reported in the newest hour versus the hour before. If many are missing, the
+        # national total is short for that reason, not because demand fell: no demand-drop call on it.
+        periods = sorted({p for r in by.values() for p, v in r.items() if "D" in v}, reverse=True)   # forecasts run ahead
+        regions = [r for r in GRID_REGIONS if r != "US48"]
+        rep = lambda p: sum(1 for r in regions if "D" in by.get(r, {}).get(p, {}))
+        newest, prev = (rep(periods[0]), rep(periods[1])) if len(periods) >= 2 else (0, 0)
+        partial = prev > 0 and newest / prev < GRID_MIN_REPORTING
         sigs, summary, lows = [], {}, 0
         for resp, label in GRID_REGIONS.items():
             hours = [(p, v) for p, v in sorted(by.get(resp, {}).items(), reverse=True) if "D" in v and "DF" in v]
@@ -512,18 +537,23 @@ def make_eia_grid(key):
             ratio, p, v = max(pairs, key=lambda x: x[0])   # both recent hours must be low before we call it a dip
             t1, t2 = (0.93, 0.86) if resp == "US48" else (0.85, 0.75)
             sev = 2 if ratio <= t2 else 1 if ratio <= t1 else 0
+            if resp == "US48" and partial:
+                sev = 0                    # too few operators reported: the national figure is not reliable this hour
             ts = datetime.strptime(p, "%Y-%m-%dT%H").replace(tzinfo=timezone.utc).timestamp()
             if resp == "US48":
                 if time.time() - ts > 8 * 3600:
                     raise RuntimeError(f"EIA data is stale (latest hour {p} UTC)")
-                summary = {"data_hour_utc": p, "us48_demand_vs_forecast": f"{ratio:.0%}"}
+                summary = {"data_hour_utc": p, "us48_demand_vs_forecast": f"{ratio:.0%}",
+                           "regions_reporting": f"{newest} of {prev} (hour before)"}
             if sev == 0 and resp != "US48":
                 continue
             lows += 1 if sev else 0
             sigs.append(Signal("power", sev,
                                f"Electricity use in {label} is {ratio:.0%} of what was forecast ({v['D']:,.0f} vs {v['DF']:,.0f} MW)",
                                "https://www.eia.gov/electricity/gridmonitor/dashboard/electric_overview/US48/US48",
-                               f"Latest data is from {p} UTC (about 1-2 hours behind). A big, lasting drop can mean widespread power outages.",
+                               f"Latest data is from {p} UTC (about 1-2 hours behind). A big, lasting drop can mean widespread power outages."
+                               + (f" Only {newest} of {prev} grid operators have reported this hour, so the national figure is not reliable yet."
+                                  if resp == "US48" and partial else ""),
                                key=f"eia:{resp}", states=GRID_STATES.get(resp, [])))
         if not sigs:
             raise RuntimeError("EIA response had no usable demand/forecast pairs")
@@ -534,28 +564,56 @@ def make_eia_grid(key):
 
 # -------------------------------------------------------------- private status
 
+STATUS_SUMMARY_EVERY = 900      # while a page reports a problem, re-read its full summary at most every 15 minutes
+_STATUS_CACHE = {}              # page name -> (time fetched, [incident names])
+STATUS_MULTI = 3                # this many pages in a serious outage at once = a strong internet signal
+PAYMENT_MULTI = 2               # this many payment processors in a serious outage at once = a payments signal
+
+
 def make_status_pages(pages):
-    """Statuspage.io-style summaries for big platforms. Simultaneous major outages = signal."""
+    """Statuspage.io-style status for big platforms. Simultaneous major outages = signal.
+    Each check reads the tiny status-only file (about 230 bytes). Only when a page reports something other than
+    all-good is the full summary read (to name the incidents), and then at most every STATUS_SUMMARY_EVERY seconds."""
+    def incidents(p, base):
+        hit = _STATUS_CACHE.get(p["name"])
+        if hit and time.time() - hit[0] < STATUS_SUMMARY_EVERY:
+            return hit[1]
+        try:
+            d = fetch_json(base + "summary.json", timeout=15)
+            names = [i.get("name", "") for i in d.get("incidents", [])][:3]
+        except Exception:
+            names = hit[1] if hit else []
+        _STATUS_CACHE[p["name"]] = (time.time(), names)
+        return names
+
     def fn(ctx):
-        sigs, ok, failed, bad = [], 0, [], 0
+        sigs, ok, failed, bad, pay_bad = [], 0, [], 0, []
         for p in pages:
+            base = p["url"].rstrip("/") + "/api/v2/"
             try:
-                d = fetch_json(p["url"].rstrip("/") + "/api/v2/summary.json", timeout=15)
+                d = fetch_json(base + "status.json", timeout=15)
             except Exception:
                 failed.append(p["name"])
                 continue
             ok += 1
             ind = d.get("status", {}).get("indicator", "none")
             sev = {"none": 0, "minor": 0, "major": 1, "critical": 2}.get(ind, 0)
+            cat = p.get("category", "internet")
             if sev >= 1:
                 bad += 1
-            if ind != "none":
-                inc = [i.get("name", "") for i in d.get("incidents", [])][:3]
-                sigs.append(Signal("internet", sev, f"{p['name']}: {d['status'].get('description', ind)}",
-                                   p["url"], "; ".join(inc), key=f"status:{p['name']}"))
-        if bad >= 3:
+                if cat == "finance":
+                    pay_bad.append(p["name"])
+            if ind == "none":
+                _STATUS_CACHE.pop(p["name"], None)     # all good again: the next problem gets a fresh summary
+                continue
+            sigs.append(Signal(cat, sev, f"{p['name']}: {d['status'].get('description', ind)}",
+                               p["url"], "; ".join(incidents(p, base)), key=f"status:{p['name']}"))
+        if bad >= STATUS_MULTI:
             sigs.append(Signal("internet", 2, f"{bad} big online services report serious outages at the same time",
                                "", key="status:multi"))
+        if len(pay_bad) >= PAYMENT_MULTI:
+            sigs.append(Signal("finance", 2, f"{' and '.join(pay_bad)} both report serious outages: card payments may fail",
+                               "", key="status:payments"))
         if ok == 0:
             raise RuntimeError("no status page reachable")
         return CollectResult(sigs, {"pages_ok": ok, "pages_failed": ", ".join(failed) or "-", "major": bad})
@@ -1242,6 +1300,151 @@ def make_local_power(loc):
     return fn
 
 
+# ------------------------------------------------------------ phone carriers (IODA, live)
+CARRIERS = {"AT&T": "7018", "Verizon": "701", "T-Mobile": "21928"}
+CARRIER_DROP = 0.85            # a carrier is "down" when its reachable address blocks fall below 85% of its recent median
+CARRIER_WINDOW = 6 * 3600      # the baseline: the carrier's own last six hours (absorbs normal daily swings)
+
+
+def carrier_drop(values):
+    """(ratio, latest) for one carrier's active-probing series: the lower of the last two readings against the
+    median of the earlier ones. Both of the last two must be low, so one noisy reading never counts."""
+    vals = [v for v in values if isinstance(v, (int, float))]
+    if len(vals) < 8:
+        return None, None
+    base = sorted(vals[:-2])[len(vals[:-2]) // 2]
+    if base <= 0:
+        return None, None
+    ratio = max(vals[-2:]) / base
+    return ratio, vals[-1]
+
+
+def ioda_carriers(ctx):
+    """Georgia Tech IODA active probing per mobile/home carrier network: how many of each carrier's address blocks
+    answer, against that carrier's own last six hours. One carrier dropping = a phones signal; two at once = stronger."""
+    now = int(time.time())
+    down, ok, notes, sigs = [], 0, {}, []
+    for name, asn in CARRIERS.items():
+        try:
+            d = fetch_json(f"https://api.ioda.inetintel.cc.gatech.edu/v2/signals/raw/asn/{asn}"
+                           f"?from={now - CARRIER_WINDOW}&until={now}&datasource=ping-slash24", timeout=30)
+            series = next(s for s in d["data"][0] if s.get("datasource") == "ping-slash24")
+        except Exception:
+            continue
+        ratio, _latest = carrier_drop(series.get("values") or [])
+        if ratio is None:
+            continue
+        ok += 1
+        notes[name] = f"{ratio:.0%}"
+        if ratio < CARRIER_DROP:
+            down.append((name, ratio))
+    if ok == 0:
+        raise RuntimeError("IODA carrier signals unavailable")
+    url = "https://ioda.inetintelligence.cc.gatech.edu/country/US"
+    for name, ratio in down:
+        sigs.append(Signal("telecom", 1, f"{name} network: only {ratio:.0%} of its usual address blocks answer",
+                           url, "Live network measurement (IODA active probing), against the carrier's own last six hours.",
+                           key=f"ioda:carrier:{name}"))
+    if len(down) >= 2:
+        sigs.append(Signal("telecom", 2, f"{' and '.join(n for n, _ in down)} networks dropped at the same time",
+                           url, "Two or more major carriers losing reachability together.", key="ioda:carriers"))
+    return CollectResult(sigs, {"carriers_vs_usual": ", ".join(f"{k} {v}" for k, v in notes.items())})
+
+
+# ------------------------------------------------------------ market-wide circuit breakers (Nasdaq Trader)
+NASDAQ_HALTS = "https://www.nasdaqtrader.com/rss.aspx?feed=tradehalts"
+MWCB = {"MWC1": (2, "Level 1 (7% drop)"), "MWC2": (2, "Level 2 (13% drop)"), "MWC3": (3, "Level 3 (20% drop, closed for the day)"),
+        "MWC0": (2, "carried over from the day before")}
+
+
+def nasdaq_halts(ctx):
+    """Trading halts. Only a MARKET-WIDE circuit breaker counts; ordinary single-stock halts happen every day."""
+    root = ET.fromstring(fetch(NASDAQ_HALTS, browser=True))
+    ns = {"ndaq": "http://www.nasdaqtrader.com/"}
+    items = root.findall(".//item")
+    today = datetime.now(timezone.utc)
+    hits = {}
+    for it in items:
+        code = (it.findtext("ndaq:ReasonCode", "", ns) or "").strip().upper()
+        if code not in MWCB:
+            continue
+        try:
+            day = datetime.strptime(it.findtext("ndaq:HaltDate", "", ns).strip(), "%m/%d/%Y").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if (today - day).days <= 1:
+            hits[code] = day
+    sigs = []
+    for code in sorted(hits, key=lambda c: -MWCB[c][0]):
+        sev, what = MWCB[code]
+        sigs.append(Signal("finance", sev, f"Market-wide trading halt: circuit breaker {what}", "https://www.nasdaqtrader.com/Trader.aspx?id=TradeHalts",
+                           "All US stock trading was paused by the exchanges' market-wide circuit breaker.", key=f"halt:{code}"))
+        break
+    return CollectResult(sigs, {"halts_listed": len(items), "market_wide": ", ".join(hits) or "-"})
+
+
+# ------------------------------------------------------------ storm context (SPC + NHC)
+SPC_RSS = "https://www.spc.noaa.gov/products/spcrss.xml"
+NHC_RSS = "https://www.nhc.noaa.gov/index-at.xml"
+TROPICAL_RX = re.compile(r"\b(hurricane|tropical storm|tropical depression|potential tropical cyclone)\b", re.I)
+
+
+def storm_outlooks(ctx):
+    """Storm Prediction Center watches and outlooks, and Hurricane Center Atlantic systems. CONTEXT ONLY: it can
+    tell the assessment that big storms are active (a harmless explanation for outages), never raise the level."""
+    notes, ok = [], 0
+    try:
+        root = ET.fromstring(fetch(SPC_RSS))
+        ok += 1
+        for it in root.findall(".//item"):
+            t, desc = it.findtext("title", ""), it.findtext("description", "")
+            if re.search(r"tornado watch", t, re.I):
+                notes.append(re.sub(r"^SPC\s*-?\s*", "", t).strip())
+            elif "Day 1 Convective Outlook" in t and re.search(r"\b(HIGH|MODERATE) RISK\b", desc):
+                notes.append("Day 1 outlook: " + re.search(r"\b(HIGH|MODERATE) RISK\b", desc).group(0).lower())
+    except Exception:
+        pass
+    try:
+        root = ET.fromstring(fetch(NHC_RSS))
+        ok += 1
+        names = {re.split(r"\s+(?:Public|Forecast|Intermediate|Graphics|Wind|Tropical Cyclone Update)", it.findtext("title", ""))[0]
+                 for it in root.findall(".//item") if TROPICAL_RX.search(it.findtext("title", ""))}
+        notes += sorted(n for n in names if n)[:3]
+    except Exception:
+        pass
+    if ok == 0:
+        raise RuntimeError("SPC and NHC feeds unavailable")
+    title = ("Storms active: " + "; ".join(notes[:4])) if notes else "No tornado watches, high-risk outlooks or Atlantic tropical systems"
+    return CollectResult([Signal("natural", 0, title, "https://www.spc.noaa.gov/", "Context only: never raises the level.",
+                                 key="spc-nhc", tags=["weather-major"] if notes else [])], {"items": len(notes)})
+
+
+# ------------------------------------------------------------ bank failures (FDIC)
+FDIC_CSV = "https://www.fdic.gov/bank-failures/download-data.csv"
+
+
+def fdic_failures(ctx):
+    """FDIC failed bank list. A failure in the last 7 days is a low-weight banks signal (never more than Watch alone)."""
+    text = fetch(FDIC_CSV).decode("utf-8", "replace")
+    import csv
+    rows = [r for r in csv.reader(text.splitlines()[1:]) if r]
+    now, recent = datetime.now(timezone.utc), []
+    for r in rows:
+        if len(r) < 6:
+            continue
+        try:
+            day = datetime.strptime(r[5].strip(), "%d-%b-%y").replace(tzinfo=timezone.utc)
+        except ValueError:
+            continue
+        if 0 <= (now - day).days <= 7:
+            recent.append((r[0].strip(), r[2].strip(), day))
+    sigs = [Signal("finance", 1, f"FDIC closed {name} ({st}) on {day:%b %d}", "https://www.fdic.gov/bank-failures/failed-bank-list",
+                   "An official bank failure. One alone is routine; depositors are normally protected.", key=f"fdic:{name}",
+                   states=[st] if st in geo.VALID_STATES else [])
+            for name, st, day in recent]
+    return CollectResult(sigs, {"failures_last_7_days": len(recent), "banks_listed": len(rows)})
+
+
 def build_collectors(cfg, data_dir=None):
     iv = cfg["intervals"]
     cs = [
@@ -1267,6 +1470,13 @@ def build_collectors(cfg, data_dir=None):
         Collector("Stock market and bank stocks", "private", "https://finance.yahoo.com/markets/",
                   iv.get("markets", 600), stock_market),
         Collector("DHS terrorism advisory (NTAS)", "gov", NTAS_URL, iv.get("ntas", 3600), ntas),
+        Collector("IODA phone carriers (AT&T, Verizon, T-Mobile)", "private",
+                  "https://ioda.inetintelligence.cc.gatech.edu/country/US", iv.get("carriers", 300), ioda_carriers),
+        Collector("Nasdaq market-wide halts", "private", "https://www.nasdaqtrader.com/Trader.aspx?id=TradeHalts",
+                  iv.get("halts", 120), nasdaq_halts),
+        Collector("NOAA storm outlooks (SPC / NHC)", "gov", "https://www.spc.noaa.gov/", iv.get("storms", 600), storm_outlooks),
+        Collector("FDIC failed banks", "gov", "https://www.fdic.gov/bank-failures/failed-bank-list", iv.get("fdic", 21600),
+                  fdic_failures),
         Collector("Reddit", "social", "https://www.reddit.com/", iv["reddit"], make_reddit(cfg)),
         Collector("Bluesky", "social", "https://bsky.app/search", iv["bluesky"], make_bluesky(cfg)),
         Collector("Connectivity check", "system", "", iv["canary"], canary),
