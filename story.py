@@ -290,11 +290,15 @@ def _reasons(label, res, cats, ok_n, total, down):
             [{"title": x.replace("News: ", "news: "), "url": "", "by": "", "kind": "system", "sev": 0, "links": []} for x in down[:6]])
     if label == "NO DATA":
         add("warn", f"Only {ok_n} of {total} sources reachable", "Blind spot")
-    if not out and label == "NORMAL":
+    calm_first = False
+    if label == "NORMAL":      # on a normal day the reasoning leads with why it is normal; anything unconfirmed follows it
         quiet = [s for c in cats.values() for s in c["signals"] if s.kind in ("gov", "private") and s.severity == 0][:8]
         add("down", f"All {ok_n} working sources look normal", "Checked", [_src(s) for s in quiet])
+        calm_first = True
 
     out.sort(key=lambda r: _DIR_ORDER[r["dir"]])
+    if calm_first:
+        out.sort(key=lambda r: r["dir"] != "down")
     return out[:8]
 
 
