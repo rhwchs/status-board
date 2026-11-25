@@ -734,7 +734,8 @@ def make_news(q):
             world_sigs.append(Signal("world", 0, f"{q['name']}: {winfo['clusters']} reports from {len({i['pub'] for i in abroad})} outlets overseas",
                                      link, "About places outside the US. Shown as context only; it never moves the alert scale.",
                                      key="world:" + q["name"],
-                                     links=[{"title": f"{short(i['title'], 100)} — {i['pub']}", "url": i["link"]} for i in abroad[:6]],
+                                     links=[{"title": f"{short(i['title'], 100)} — {i['pub']}", "url": i["link"], "t": i["time"]}
+                                            for i in abroad[:6]],
                                      meta=winfo))
         n = len({i["pub"] for i in recent})                 # distinct outlets (shown, and kept for the filter checks)
         info = trust.summarize(recent, q["category"], ctx.cfg)   # who is reporting, with copies counted once

@@ -299,20 +299,98 @@ WORLD_LABEL = {"Geopolitical escalation": "Geopolitics", "Nuclear / missile / EM
                "Cyberattack on infrastructure": "Cyber", "Infrastructure sabotage": "Sabotage"}
 
 
-def _world(signals):
-    """The quiet 'In the world' line: overseas stories, as tappable items. Context only."""
+# For the place shown beside a world headline: demonyms, leaders and groups name the country they belong to.
+_PLACE = {"israeli": "Israel", "iranian": "Iran", "tehran": "Iran", "khamenei": "Iran", "fordow": "Iran", "fordo": "Iran",
+          "natanz": "Iran", "isfahan": "Iran", "bushehr": "Iran", "ukrainian": "Ukraine", "kyiv": "Ukraine",
+          "zelensky": "Ukraine", "russian": "Russia", "moscow": "Russia", "kremlin": "Russia", "putin": "Russia",
+          "chinese": "China", "beijing": "China", "taipei": "Taiwan", "japanese": "Japan", "korean": "Korea",
+          "pyongyang": "North Korea", "kim jong": "North Korea", "british": "UK", "britain": "UK", "london": "UK",
+          "uk": "UK", "eu": "EU", "uae": "UAE", "european": "Europe", "german": "Germany", "french": "France",
+          "spanish": "Spain", "italian": "Italy", "polish": "Poland", "turkish": "Turkey", "indian": "India",
+          "pakistani": "Pakistan", "canadian": "Canada", "mexican": "Mexico", "australian": "Australia",
+          "netanyahu": "Israel", "tel aviv": "Israel", "hamas": "Gaza", "rafah": "Gaza", "hezbollah": "Lebanon",
+          "houthi": "Yemen", "houthis": "Yemen", "taliban": "Afghanistan", "mideast": "Middle East", "dutch": "Netherlands",
+          "swedish": "Sweden", "jordanian": "Jordan"}
+
+
+def _places(headline):
+    """Every foreign place a headline names, normalised ('Iranian' -> Iran, 'Pyongyang' -> North Korea), in order."""
+    import geo
+    text = geo.ACTOR_RX.sub(" ", headline or "")
     out = []
-    for s in sorted(signals, key=lambda x: -len(x.links or [])):
-        name = s.title.split(":")[0].strip()
-        label = WORLD_LABEL.get(name, name if not name.startswith("Drudge") else "Drudge")
-        out.append({"dir": "world", "text": f"{label}: {_short(s.title.split(':', 1)[-1].strip(), 60)}", "tag": "Overseas",
-                    "area": "world", "area_label": label, "why": [], "sources": [_src(s)]})
-    seen, uniq = set(), []
-    for o in out:
-        if o["area_label"] not in seen:
-            seen.add(o["area_label"])
-            uniq.append(o)
-    return uniq[:5]
+    for m in geo.FOREIGN_RX.finditer(text):
+        w = m.group(0).lower()
+        if w in ("korea", "korean"):
+            before = text[max(0, m.start() - 6):m.start()].lower()
+            name = "North Korea" if "north" in before else "South Korea" if "south" in before else "Korea"
+        else:
+            name = _PLACE.get(w, w.title())
+        if name not in out:
+            out.append(name)
+    return out
+
+
+def _place(headline):
+    p = _places(headline)
+    return p[0] if p else "Overseas"
+
+
+WORLD_MIN_OUTLETS = 2       # distinct credible outlets (trust tier 1-2) that must be covering a world story to show it
+
+
+def _same_event(a, b):
+    """Two headlines about the same overseas event: same place and enough words in common. Looser than trust's
+    syndication check, because different outlets word the same event differently."""
+    if not set(a["places"]) & set(b["places"]):
+        return False
+    common = a["tok"] & b["tok"]
+    return len(common) >= 2 and len(common) / max(1, min(len(a["tok"]), len(b["tok"]))) >= 0.34
+
+
+def _world(signals, cfg=None):
+    """'World events we're monitoring': overseas stories, context only (they never move the level).
+    A story shows only when at least two DIFFERENT credible outlets (trust tier 1-2) are covering it (social posts,
+    low-trust sites and Drudge never count) AND its headlines show a plausible path to people in the US (impact.py). One short headline per story, with the place and when it was published.
+    Most outlets first, then newest. The page shows the first three and folds the rest under 'and N more'."""
+    import impact
+    import trust
+    heads = []
+    for s in signals:
+        if (s.key or "").startswith("world:drudge") or (s.source or "").startswith("Drudge") or s.kind == "social":
+            continue
+        for l in s.links or []:
+            title = l.get("title") or ""
+            if " \u2014 " not in title:
+                continue
+            head, pub = (x.strip() for x in title.rsplit(" \u2014 ", 1))
+            if not head or not pub or trust.tier_of(pub, None, cfg) > 2:
+                continue
+            heads.append({"head": head, "pub": pub, "url": l.get("url") or s.url, "t": l.get("t") or s.time,
+                          "place": _place(head), "places": _places(head) or ["Overseas"], "tok": trust._tokens(head), "sig": s})
+    events = []
+    for h in heads:
+        ev = next((e for e in events if any(_same_event(h, x) for x in e)), None)
+        if ev is None:
+            events.append([h])
+        else:
+            ev.append(h)
+    items = []
+    for ev in events:
+        outlets = {trust._norm(h["pub"]) for h in ev}
+        if len(outlets) < WORLD_MIN_OUTLETS:
+            continue
+        why = impact.tags([h["head"] for h in ev])
+        if not why:                     # no plausible path to people in the US: not shown
+            continue
+        first = ev[0]
+        t = max(h["t"] or 0 for h in ev) or None
+        norm = re.sub(r"\W+", " ", first["head"].lower()).strip()
+        items.append({"dir": "world", "text": "world:" + norm[:80], "headline": _short(first["head"], 90),
+                      "place": first["place"], "t": t, "url": first["url"], "outlets": len(outlets), "impact": why,
+                      "area": "world", "area_label": first["place"], "tag": "Overseas", "why": [],
+                      "sources": [_src(first["sig"])]})
+    items.sort(key=lambda i: (-i["outlets"], -(i["t"] or 0)))
+    return items[:8]
 
 
 def tell(label, res, cats, ok_n, total, failing, down=None, local=None, loc=None, world=None):
