@@ -143,7 +143,7 @@
   .brand .wm span { display:block; font-size:13px; color:var(--dim); margin-top:2px; }
   @media (max-width:520px) {
     .hero { flex-direction:column; gap:12px; }
-    ol.scale, .scalenote { width:100%; max-width:280px; }
+    ol.scale, .scalenote { width:100%; max-width:none; }
     .brand { gap:11px; }
     .brand svg { height:44px; }
     .brand .wm b { font-size:21px; }
@@ -162,9 +162,10 @@
     .brand svg { height:48px; }
     .hero { flex-direction:column; align-items:center; gap:12px; }
     .hero .left { text-align:center; width:100%; }
+    .hero > div:last-child { width:100%; }
     .levelname { font-size:23px; }
     .levelname .lv { display:block; }
-    ol.scale, .scalenote { width:100%; max-width:280px; }
+    ol.scale, .scalenote { width:100%; max-width:none; }
   }
   .world { margin-top:14px; font-size:13px; }
   .world .wt { font-weight:700; color:var(--text); }
