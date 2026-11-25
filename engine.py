@@ -382,8 +382,8 @@ class Monitor:
                 sc = ((analysis or {}).get("story") or {}).get("scale") or {}
                 name = f"{sc.get('step', '')} {sc.get('name', LEVELS[level])}".strip()
                 top = verdict or ", ".join(CATEGORIES[k] for k, c in cats.items() if c["level"] >= 2)
-                self._notify(f"Status board: {name}", top, urgent=(level >= 3))
-                self._record_notification("level", f"Status board: {name}", top, level, analysis, now - self._hi_since)
+                self._notify(f"Probably Fine: {name}", top, urgent=(level >= 3))
+                self._record_notification("level", f"Probably Fine: {name}", top, level, analysis, now - self._hi_since)
                 self._log(f"Notified: {name} (held {int(now - self._hi_since)}s)", level)
                 self.level_notified = self._last_notified_level = level
                 self._last_notify = now

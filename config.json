@@ -24,6 +24,11 @@
     "suspected_score": 6,
     "attack_margin": 2
   },
+  "customer_alerts": {
+    "enabled": true,
+    "interval": 60,
+    "cap_feeds": []
+  },
   "intervals": {
     "faa": 60,
     "nws": 90,

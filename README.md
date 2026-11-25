@@ -1,4 +1,6 @@
-# Status Board
+# Probably Fine
+
+*Fair warning.*
 
 A small page that checks public data sources (weather alerts, flight status, power and internet outage reports,
 markets, news) and summarises them on one screen, with a link to every original source.

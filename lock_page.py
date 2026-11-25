@@ -20,19 +20,19 @@ ITER = 600_000
 LOCK_HTML = """<!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="robots" content="noindex"><meta name="apple-mobile-web-app-capable" content="yes">
-<meta name="apple-mobile-web-app-title" content="Status"><title>Status board (private)</title>
+<meta name="apple-mobile-web-app-title" content="Probably Fine"><title>Probably Fine (private)</title>
 <style>
-  :root{--bg:#0e1116;--panel:#171c24;--line:#2a323d;--text:#e8edf3;--dim:#93a0b2;--link:#6cb2ff}
-  @media (prefers-color-scheme: light){:root{--bg:#f3f5f8;--panel:#fff;--line:#d9dee6;--text:#14181f;--dim:#5b6676;--link:#0b64c0}}
+  :root{--bg:#17212B;--panel:#1E2A36;--line:#34434F;--text:#F6F2EA;--dim:#9CA5AF;--link:#82BDF2}
+  @media (prefers-color-scheme: light){:root{--bg:#F6F2EA;--panel:#FFFDF8;--line:#E0D8C8;--text:#17212B;--dim:#5D6670;--link:#1F5FA8}}
   *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;background:var(--bg);color:var(--text);
-  font:16px/1.4 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px}
+  font:16px/1.4 Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;padding:16px}
   main{width:100%;max-width:380px;background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:20px}
   h1{font-size:20px;margin:0 0 6px}p{margin:0 0 14px;color:var(--dim);font-size:14px}
   input[type=text]{width:100%;font:inherit;font-size:18px;padding:12px;border-radius:10px;border:1px solid var(--line);background:var(--bg);color:var(--text)}
   button{width:100%;margin-top:12px;font:inherit;font-weight:700;padding:12px;border:0;border-radius:10px;background:var(--link);color:#fff}
   label{display:block;margin-top:10px;font-size:14px;color:var(--dim)}#msg{margin-top:10px;font-size:14px;min-height:1.2em;color:#e5584d}
 </style></head><body><main>
-<h1>Status board</h1><p>This page is private. Enter the access code you were given.</p>
+<h1>Probably Fine</h1><p>This page is private. Enter the access code you were given.</p>
 <form id="f"><input id="c" type="text" autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" placeholder="Access code" aria-label="Access code">
 <label><input id="r" type="checkbox" checked> Remember on this device</label><button id="b">Open</button></form><div id="msg"></div>
 <script>

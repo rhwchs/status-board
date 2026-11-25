@@ -91,7 +91,7 @@ _DIR_ORDER = {"up": 0, "soft": 1, "down": 2, "warn": 3}
 # The five-step scale shown at the top right. Internally the engine still has four levels (and logs them by their old
 # names); the page shows these. Step 5 is never inferred: it needs a government source to say so itself.
 STEPS = [
-    ("Baseline", "Nothing unusual is happening."),
+    ("Normal Conditions", "Nothing unusual is happening."),
     ("Watch", "Something unusual is happening, but it is not confirmed."),
     ("Concern", "There is a real problem in more than one area, and the cause isn't clear yet."),
     ("Likely event", "A serious, spreading event is likely under way."),
