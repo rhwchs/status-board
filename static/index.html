@@ -151,6 +151,21 @@
     .levelname { font-size:23px; }
     .levelname .lv { display:block; }
   }
+  /* Phones: logo and the current level sit at the top, centred. Desktop (wider than 600px) is untouched. */
+  @media (max-width:600px) {
+    main { display:flex; flex-direction:column; }
+    main > * { order:5; }
+    .brand { order:1; flex-direction:column; justify-content:center; gap:6px; text-align:center; }
+    #banner { order:2; }
+    #warn { order:3; margin:12px 0 0; }
+    .purpose { order:4; margin:14px 0 0; text-align:center; }
+    .brand svg { height:48px; }
+    .hero { flex-direction:column; align-items:center; gap:12px; }
+    .hero .left { text-align:center; width:100%; }
+    .levelname { font-size:23px; }
+    .levelname .lv { display:block; }
+    ol.scale, .scalenote { width:100%; max-width:280px; }
+  }
   .worldline { margin-top:12px; font-size:13px; color:var(--dim); --lc:var(--lx); }
   .worldline .evchip { font-size:12px; padding:1px 9px; border-color:var(--line); color:var(--dim); }
   .whynot { margin-top:12px; font-size:13px; }
