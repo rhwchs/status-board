@@ -126,7 +126,53 @@ def _scale(label, cats):
                                               or "official-hazard" in (s.tags or []) and s.severity >= 3)
                          for c in cats.values() for s in c["signals"]):
         step = 5          # a government source itself reports a nuclear / civil-danger threat, or an imminent major hazard
-    return {"step": step, "name": STEPS[step - 1][0], "line": STEPS[step - 1][1], "names": [n for n, _ in STEPS]}
+    reg = _regional_line(step, cats)
+    return {"step": step, "name": STEPS[step - 1][0], "line": reg or STEPS[step - 1][1], "regional": bool(reg),
+            "names": [n for n, _ in STEPS]}
+
+
+def _event_name(s):
+    ev = (s.meta or {}).get("event")
+    if not ev:
+        t = s.title or ""
+        ev = t.split(": ", 1)[1].split(" \u2014 ")[0] if t.startswith("Weather Service alert: ") else t.split(":")[0]
+    return ev.strip().lower()
+
+
+def _where(codes):
+    import geo
+    names = {}
+    for k, v in geo.STATE_CODES.items():      # state names come first in that table; later entries are cities
+        names.setdefault(v, k.title())
+    full = [names.get(c, c) for c in codes]
+    if len(full) <= 3:
+        return full[0] if len(full) == 1 else ", ".join(full[:-1]) + " and " + full[-1]
+    return f"{len(full)} states, including {full[0]}, {full[1]} and {full[2]}"
+
+
+def _regional_line(step, cats):
+    """When a regional official warning is what sets the level, say plainly what it is and where."""
+    regs = [s for c in cats.values() for s in c["signals"] if (s.meta or {}).get("regional")
+            and (s.severity >= 2 or "regional-elsewhere" in (s.tags or []))]
+    if step == 5:
+        regs = [s for s in regs if "official-hazard" in (s.tags or []) and s.severity >= 3]
+    elif step == 4:
+        regs = [s for s in regs if "official-danger-here" in (s.tags or [])] or \
+               [s for s in regs if "official-hazard" in (s.tags or []) and s.severity >= 3]
+    elif step == 2:
+        regs = [s for s in regs if "regional-elsewhere" in (s.tags or []) and s.category == "natural"]
+    elif step != 3:
+        return None
+    if not regs:
+        return None
+    regs.sort(key=lambda s: -s.severity)
+    parts = []
+    for s in regs[:2]:
+        p = f"a {_event_name(s)} is in effect for {_where(s.meta['regional'])}"
+        if p not in parts:
+            parts.append(p)
+    text = " and ".join(parts)
+    return text[0].upper() + text[1:] + "."
 
 
 def _short(text, n=72):

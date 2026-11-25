@@ -41,7 +41,6 @@
     "cloud": 180,
     "adsb": 1200,
     "reddit": 1800,
-    "mastodon": 300,
     "markets": 300,
     "bluesky": 300,
     "news": 300,
@@ -269,16 +268,6 @@
     "aviation",
     "CredibleDefense"
   ],
-  "mastodon_tags": {
-    "outage": "internet",
-    "blackout": "power",
-    "poweroutage": "power",
-    "cyberattack": "cyber",
-    "emp": "nuclear",
-    "911": "telecom",
-    "explosion": "security",
-    "groundstop": "aviation"
-  },
   "bluesky_queries": [
     {
       "q": "\"power outage\"",

@@ -1,6 +1,8 @@
 """Scheduler, cross-domain correlation, and alerting."""
+import copy
 import json
 import os
+import re
 import platform
 import random
 import subprocess
@@ -21,6 +23,42 @@ from store import Store
 from story import tell
 
 LEVELS = {0: "NORMAL", 1: "WATCH", 2: "ELEVATED", 3: "SUSPECTED ATTACK"}
+
+
+# Official warnings with a footprint stay REGIONAL: full weight only in the views of the states they cover. Elsewhere, and
+# in the nationwide view, a weather or natural-hazard warning counts for at most Watch, and a civil-danger-type warning
+# for at most Concern. A warning that covers WIDE_STATES or more states, or whose own wording is explicitly
+# national/strategic, is treated as national.
+WIDE_STATES = 10
+NATIONAL_RX = re.compile(r"missile|ballistic|nuclear (?:attack|strike|detonation|explosion|threat)|national emergency|"
+                         r"presidential (?:alert|message)|nationwide|entire (?:country|nation)|all states", re.I)
+
+
+def _regionalize(sigs, key):
+    """Copies of the view's signals with regional official warnings weighted for viewer `key` ('all' or a state code)."""
+    out = []
+    for s in sigs:
+        tags = set(s.tags or [])
+        weather = s.category == "natural"
+        if not (s.kind == "gov" and s.states and len(s.states) < WIDE_STATES
+                and ({"official-hazard", "official-strategic"} & tags or weather)):
+            out.append(s)
+            continue
+        text = " ".join([s.title or "", s.detail or ""] + [l.get("title", "") for l in (s.links or [])])
+        if "official-strategic" in tags and NATIONAL_RX.search(text):
+            out.append(s)                       # the government itself says it is a national / strategic threat
+            continue
+        inside = key in s.states
+        c = copy.copy(s)
+        c.tags, c.meta = [t for t in s.tags if t != "official-strategic"], dict(s.meta or {})
+        c.meta["regional"] = sorted(s.states)
+        if "official-strategic" in tags and inside:
+            c.tags.append("official-danger-here")   # a civil danger warning for YOUR area: Likely event, not Confirmed
+        if not inside:                              # someone else's warning: at most Watch (weather) or Concern here
+            c.severity = min(c.severity, 1 if weather else 2)
+            c.tags.append("regional-elsewhere")
+        out.append(c)
+    return out
 
 
 def _step_name(level):
@@ -247,7 +285,7 @@ class Monitor:
     def _view(self, key, sigs, now, ok_n, total, down, blind, lost_suddenly, fail_n, world):
         """Everything for one personal view: category levels, the assessment, the story and the score."""
         cats = {k: {"label": v, "level": 0, "signals": [], "kinds": set()} for k, v in CATEGORIES.items()}
-        for s in sigs:
+        for s in _regionalize(sigs, key):
             cats[s.category]["signals"].append(s)
         for k, c in cats.items():
             c["signals"].sort(key=lambda s: (-s.severity, -s.time))

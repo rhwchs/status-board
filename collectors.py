@@ -288,7 +288,8 @@ def nws_alerts(ctx):
                   "url": f.get("id", "")} for f in items[:6]]
         sigs.append(Signal(cat, sev, f"Weather Service alert: {ev} — {len(items)} active in {len(states)} state(s)",
                            "https://alerts.weather.gov/", ", ".join(sorted(states)), key=f"nws:{ev}",
-                           links=links, tags=_nws_tags(ev, sev), states=sorted(states & geo.VALID_STATES)))
+                           links=links, tags=_nws_tags(ev, sev), states=sorted(states & geo.VALID_STATES),
+                           meta={"event": ev}))
     if not sigs:
         sigs.append(Signal("emergency", 0, "No emergency-level Weather Service alerts right now",
                            "https://alerts.weather.gov/", key="nws:none"))
@@ -332,7 +333,7 @@ def nws_weather(ctx):
         st &= geo.VALID_STATES
         sigs.append(Signal("natural", sev, f"{ev}: {len(items)} active in {', '.join(sorted(st)) or 'the US'}",
                            "https://alerts.weather.gov/", "An official Weather Service warning for a hazard that changes plans for days.",
-                           key=f"nws:hazard:{ev}", tags=["official-hazard"], states=sorted(st),
+                           key=f"nws:hazard:{ev}", tags=["official-hazard"], states=sorted(st), meta={"event": ev},
                            links=[{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110),
                                    "url": f.get("id", "")} for f in items[:6]]))
     return CollectResult(sigs, {"weather_warnings": len(feats), "major": major})
@@ -832,42 +833,6 @@ def make_reddit(cfg):
     return fn
 
 
-def make_mastodon(cfg):
-    def fn(ctx):
-        counts, samples, ok, saturated, claims = {}, {}, 0, 0, {}
-        now = time.time()
-        for tag, cat in cfg["mastodon_tags"].items():
-            try:
-                posts = fetch_json(f"https://mastodon.social/api/v1/timelines/tag/{tag}?limit=40")
-            except Exception:
-                continue
-            ok += 1
-            times = [parse_time(p.get("created_at")) for p in posts]
-            recent = [p for p, t in zip(posts, times) if t and now - t < 3600]
-            if len(recent) >= 40:
-                saturated += 1
-            counts[cat] = counts.get(cat, 0) + rate_per_hour(times, 40, now)
-            for p in recent[:3]:
-                samples.setdefault(cat, []).append(
-                    {"title": f"#{tag}: {short(strip_html(p.get('content')), 110)}", "url": p.get("url", "")})
-            for p in recent:
-                cnt = {"likes": p.get("favourites_count", 0), "reposts": p.get("reblogs_count", 0),
-                       "quotes": p.get("quotes_count", 0), "replies": p.get("replies_count", 0)}
-                if credibility.engagement_of(cnt) >= cfg.get("social_viral_min", credibility.VIRAL_MIN) / 4 \
-                        and geo.classify(strip_html(p.get("content"))) != "foreign":
-                    a = p.get("account") or {}
-                    claims.setdefault(cat, []).append(credibility.make_candidate(
-                        "Mastodon", p.get("url", ""), strip_html(p.get("content")), cnt,
-                        {"created": a.get("created_at"), "followers": a.get("followers_count"), "posts": a.get("statuses_count"),
-                         "bot": bool(a.get("bot")), "handle": a.get("acct", "")}))
-        if ok == 0:
-            raise RuntimeError("Mastodon unreachable")
-        sigs = _emit_social(ctx, "Mastodon", "https://mastodon.social/explore", counts, samples,
-                            sorted(set(cfg["mastodon_tags"].values())), CATEGORIES, claims)
-        return CollectResult(sigs, {"tags_ok": f"{ok}/{len(cfg['mastodon_tags'])}", "saturated_tags": saturated})
-    return fn
-
-
 def make_bluesky(cfg):
     def fn(ctx):
         counts, samples, ok, claims = {}, {}, 0, {}
@@ -1303,7 +1268,6 @@ def build_collectors(cfg, data_dir=None):
                   iv.get("markets", 600), stock_market),
         Collector("DHS terrorism advisory (NTAS)", "gov", NTAS_URL, iv.get("ntas", 3600), ntas),
         Collector("Reddit", "social", "https://www.reddit.com/", iv["reddit"], make_reddit(cfg)),
-        Collector("Mastodon", "social", "https://mastodon.social/explore", iv["mastodon"], make_mastodon(cfg)),
         Collector("Bluesky", "social", "https://bsky.app/search", iv["bluesky"], make_bluesky(cfg)),
         Collector("Connectivity check", "system", "", iv["canary"], canary),
     ]

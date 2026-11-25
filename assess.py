@@ -194,6 +194,7 @@ def assess(cats, mem, params, now, slow_fn=None):
         "threat:cyber": "official-cyber" in tags,
         "threat:physical": bool({"official-physical", "security-stop"} & tags),
         "threat:strategic": "official-strategic" in tags,
+        "danger:here": "official-danger-here" in tags,     # an official civil-danger warning that covers this viewer's area
     }
     for name, (label, _t, _c) in threat.items():
         _track(mem, name, flags[name], now, warm)
@@ -403,6 +404,8 @@ def assess(cats, mem, params, now, slow_fn=None):
     rules = []                    # every condition that holds, so a false alarm can be traced to the rule that caused it
     if flags["threat:strategic"]:
         rules.append("official strategic warning")
+    if flags["danger:here"]:
+        rules.append("official civil-danger warning for this area")
     if hazard_sev >= 3:
         rules.append("official warning of an imminent major hazard")
     if attack_pattern and (n_sig >= 2 or (n_sig >= 1 and official_strong)):
@@ -427,7 +430,7 @@ def assess(cats, mem, params, now, slow_fn=None):
         rules.append("slow burn across several areas")
     if threat_here and n_sig >= 1:
         rules.append("official threat warning plus a disruption")
-    if flags["threat:strategic"] or hazard_sev >= 3:
+    if flags["threat:strategic"] or hazard_sev >= 3 or flags["danger:here"]:
         level = 3                                       # an official warning of an imminent major threat: strategic, or a hurricane
     elif attack_pattern and (n_sig >= 2 or (n_sig >= 1 and official_strong)):
         level = 3                                       # an attack-shaped pattern of confirmed disruptions

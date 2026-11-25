@@ -502,7 +502,10 @@ function render(d) {
   const confirmedBy = events.some(r => r.tag === 'Official / live data');
   // One sentence. For Normal/Watch (nothing to do) the sentence carries a tappable chip for each thing going on.
   let desc;
-  if (step === 2 && events.length) {
+  const otherEv = events.filter(r => r.area !== 'natural');
+  if (step === 2 && scl.regional) {          // someone else's weather warning: say what and where, then anything else
+    desc = esc(scl.line) + (otherEv.length ? ' Also unusual: ' + andList(otherEv.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`)) + '.' : '');
+  } else if (step === 2 && events.length) {
     const chips = events.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`);
     desc = 'Something unusual is happening involving ' + andList(chips)
          + (confirmedBy ? '.' : ', but no official source has confirmed it.');
