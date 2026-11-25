@@ -81,7 +81,7 @@ POSTURE = {
 AREA = {
     "aviation": "Flights", "telecom": "Phones & 911", "power": "Power", "internet": "Internet", "finance": "Banks",
     "markets": "Markets", "cyber": "Hacking", "security": "Violence", "nuclear": "Nuclear / missile",
-    "emergency": "Emergency alerts", "space": "Solar storm", "natural": "Natural events",
+    "emergency": "Emergency alerts", "space": "Solar storm", "natural": "Natural events", "roads": "Roads",
 }
 HYP_SHORT = {"accident": "an accident or equipment failure", "natural": "weather or a solar storm",
              "hoax": "a false alarm or rumor", "cyber": "a cyber attack", "physical": "a physical attack",

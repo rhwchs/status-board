@@ -48,6 +48,7 @@ CATEGORIES = {
     "markets":   "Stock market",
     "space":     "Solar storms (can act like an EMP)",
     "natural":   "Earthquakes and natural events",
+    "roads":     "Roads and highways",
     "elite":     "Wealthy people leaving (weak signal)",
     "local":     "Near you",          # your own county: shown on its own card, never feeds the national alarm
 }
@@ -97,7 +98,11 @@ def _ssl_context():
 SSL_CTX = _ssl_context()
 
 
-def fetch(url, browser=False, timeout=20, max_bytes=12_000_000, headers=None, curl_first=False):
+def fetch(url, browser=False, timeout=20, max_bytes=12_000_000, headers=None, curl_first=False, gzip_ok=False):
+    if gzip_ok:          # ask for a compressed answer (big JSON feeds shrink about tenfold) and unpack it here
+        import gzip
+        data = fetch(url, browser, timeout, max_bytes, dict(headers or {}, **{"Accept-Encoding": "gzip"}), curl_first)
+        return gzip.decompress(data) if data[:2] == b"\x1f\x8b" else data
     h = {"User-Agent": BROWSER_UA if browser else UA, "Accept": "*/*"}
     if headers:
         h.update(headers)
@@ -1445,6 +1450,146 @@ def fdic_failures(ctx):
     return CollectResult(sigs, {"failures_last_7_days": len(recent), "banks_listed": len(rows)})
 
 
+# ------------------------------------------------------------ state-level feeds
+# These are REGIONAL: a signal counts in the views of the states it names and is context everywhere else
+# (tag "regional-only", see engine._regionalize). On its own none of them goes above Watch.
+
+WILDFIRE_URL = ("https://services3.arcgis.com/T4QMspbfLg3qTGWY/arcgis/rest/services/WFIGS_Incident_Locations_Current/"
+                "FeatureServer/0/query")
+WILDFIRE_MIN_ACRES = 1000      # a large fire
+WILDFIRE_MAX_CONTAINED = 80    # mostly contained fires are winding down
+WILDFIRE_MAX_AGE = 48 * 3600   # incidents nobody has updated in two days are not "active news"
+
+
+def wildfires(ctx):
+    """NIFC national wildfire incidents (free, no key): large, not-yet-contained, recently updated fires, per state."""
+    q = urllib.parse.urlencode({
+        "where": f"IncidentSize>={WILDFIRE_MIN_ACRES} AND IncidentTypeCategory='WF' AND "
+                 f"(PercentContained IS NULL OR PercentContained<{WILDFIRE_MAX_CONTAINED})",
+        "outFields": "POOState,IncidentName,IncidentSize,PercentContained,ModifiedOnDateTime_dt",
+        "orderByFields": "IncidentSize DESC", "resultRecordCount": "200", "f": "json"})
+    d = fetch_json(WILDFIRE_URL + "?" + q, timeout=30)
+    if "features" not in d:
+        raise RuntimeError("wildfire layer answered without data")
+    now, by = time.time(), {}
+    for f in d["features"]:
+        a = f.get("attributes") or {}
+        st = (a.get("POOState") or "")[-2:].upper()
+        if st not in geo.VALID_STATES or now - (a.get("ModifiedOnDateTime_dt") or 0) / 1000 > WILDFIRE_MAX_AGE:
+            continue
+        by.setdefault(st, []).append(a)
+    sigs = []
+    for st, fires in sorted(by.items()):
+        fires.sort(key=lambda a: -(a.get("IncidentSize") or 0))
+        top = fires[0]
+        pc = top.get("PercentContained")
+        sigs.append(Signal("natural", 1, f"Wildfire: {len(fires)} large fire(s) in {st}, biggest {top.get('IncidentName', '?').title()} "
+                           f"({top.get('IncidentSize', 0):,.0f} acres{'' if pc is None else f', {pc:.0f}% contained'})",
+                           "https://www.nifc.gov/fire-information/nfn", "National Interagency Fire Center incident data.",
+                           key=f"fire:{st}", tags=["regional-only"], states=[st], meta={"event": "Wildfire"}))
+    return CollectResult(sigs, {"states_with_large_fires": ", ".join(sorted(by)) or "-"})
+
+
+COOP_DATA = "https://outagemap-data.cloud.coop/{slug}/Hosted_Outage_Map/summary.json"
+
+
+def coop_severity(out, served):
+    """The local co-op reader's scale, capped at 2: one co-op is one area, never a national alarm by itself."""
+    if out < 25 or not served:
+        return 0
+    pct = out / served
+    return 2 if pct >= 0.05 and out >= 500 else 1 if pct >= 0.01 else 0
+
+
+def make_coops(coops):
+    """Electric co-op outage maps on the shared outagemap.coop platform: one small file per co-op, updated every minute."""
+    def fn(ctx):
+        if not coops:
+            return CollectResult([], {"coops_ok": "none configured"})
+        sigs, ok, failed, notes = [], 0, [], []
+        for c in coops:
+            try:
+                d = fetch_json(COOP_DATA.format(slug=c["slug"]), timeout=15)
+                if time.time() - d.get("lastUpdate", 0) / 1000 > 2700:
+                    raise RuntimeError("stale")
+            except Exception:
+                failed.append(c["name"])
+                continue
+            ok += 1
+            sets = d.get("regionDataSets") or []
+            regions = sets[0].get("regions", []) if sets else []
+            out = sum(r.get("numberOut", 0) for r in regions)
+            served = d.get("totalServed") or sum(r.get("numberServed", 0) for r in regions)
+            sev = coop_severity(out, served)
+            notes.append(f"{c['name']} {out:,}")
+            if sev:
+                sigs.append(Signal("power", sev, f"{c['name']} ({c['state']}): {out:,} of {served:,} members without power",
+                                   c.get("map") or f"https://{c['slug']}.outagemap.coop/", "From the co-op's own outage map.",
+                                   key=f"coop:{c['slug']}", tags=["regional-only"], states=[c["state"]]))
+        if ok == 0:
+            raise RuntimeError("no co-op outage map reachable")
+        return CollectResult(sigs, {"coops_ok": f"{ok}/{len(coops)}", "out": ", ".join(notes),
+                                    "failed": ", ".join(failed) or "-"})
+    return fn
+
+
+ROAD_RX = re.compile(r"\b(I|IH|Interstate|US|U\.S\.|SR|State Route|State Highway|Hwy|Highway|M|K|MN|MO|KS|IA|WI|IN|LA|MD|MS|NJ|NH|VT|ME|AZ|FL)[\s-]*\d", re.I)
+ROAD_MIN_CLOSURES = 5          # a state needs at least this many full highway closures before a jump can count
+ROAD_SPIKE = 2.0               # ...and at least twice its own usual number
+
+
+def major_closures(feed):
+    """Full closures of numbered highways in one WZDx feed: (count, sample road names)."""
+    n, roads = 0, []
+    for f in feed.get("features", []):
+        p = f.get("properties") or {}
+        core = p.get("core_details") or {}
+        if p.get("vehicle_impact") != "all-lanes-closed":
+            continue
+        names = core.get("road_names") or []
+        if any(ROAD_RX.search(str(x)) for x in names):
+            n += 1
+            roads.append(str(names[0]))
+    return n, roads
+
+
+def make_wzdx(feeds):
+    """State road-event feeds in the federal WZDx format. Routine work zones are ignored: only a sudden jump in FULL
+    closures of numbered highways, against that state's own recent numbers, counts. Context: Watch at most."""
+    def fn(ctx):
+        if not feeds:
+            return CollectResult([], {"feeds_ok": "none configured"})
+        sigs, ok, failed, counts = [], 0, [], {}
+        for fd in feeds:
+            try:
+                d = fetch_json(fd["url"], timeout=40, gzip_ok=True)
+                if not isinstance(d.get("features"), list):
+                    raise RuntimeError("not WZDx")
+            except Exception:
+                failed.append(fd["name"])
+                continue
+            ok += 1
+            n, roads = major_closures(d)
+            c = counts.setdefault("/".join(fd["states"]), [0, [], fd["states"]])
+            c[0] += n
+            c[1] += roads
+        for st, (n, roads, states) in sorted(counts.items()):
+            key = f"roads:{st}"
+            base, _n = ctx.store.baseline(key) if ctx else (None, 0)
+            ctx and ctx.store.record(key, n)
+            if base is None or n < ROAD_MIN_CLOSURES or n < ROAD_SPIKE * max(base, 1):
+                continue
+            sample = ", ".join(sorted(set(roads))[:3])
+            sigs.append(Signal("roads", 1, f"Roads in {st}: {n} full highway closures (usually about {base:g})",
+                               "https://www.transportation.gov/av/data/wzdx", f"From the state's road-event feed. {sample}",
+                               key=key, tags=["regional-only"], states=list(states)))
+        if ok == 0:
+            raise RuntimeError("no state road-event feed reachable")
+        return CollectResult(sigs, {"feeds_ok": f"{ok}/{len(feeds)}", "full_closures": ", ".join(f"{s} {v[0]}" for s, v in sorted(counts.items())),
+                                    "failed": ", ".join(failed) or "-"})
+    return fn
+
+
 def build_collectors(cfg, data_dir=None):
     iv = cfg["intervals"]
     cs = [
@@ -1475,6 +1620,11 @@ def build_collectors(cfg, data_dir=None):
         Collector("Nasdaq market-wide halts", "private", "https://www.nasdaqtrader.com/Trader.aspx?id=TradeHalts",
                   iv.get("halts", 120), nasdaq_halts),
         Collector("NOAA storm outlooks (SPC / NHC)", "gov", "https://www.spc.noaa.gov/", iv.get("storms", 600), storm_outlooks),
+        Collector("Wildfires (NIFC)", "gov", "https://www.nifc.gov/fire-information/nfn", iv.get("wildfires", 900), wildfires),
+        Collector("Co-op outage maps", "private", "https://outagemap-data.cloud.coop/", iv.get("coops", 300),
+                  make_coops(cfg.get("coops", []))),
+        Collector("State road events (WZDx)", "gov", "https://www.transportation.gov/av/data/wzdx", iv.get("wzdx", 600),
+                  make_wzdx(cfg.get("wzdx_feeds", []))),
         Collector("FDIC failed banks", "gov", "https://www.fdic.gov/bank-failures/failed-bank-list", iv.get("fdic", 21600),
                   fdic_failures),
         Collector("Reddit", "social", "https://www.reddit.com/", iv["reddit"], make_reddit(cfg)),

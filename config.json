@@ -38,6 +38,9 @@
     "sans": 300,
     "ioda": 300,
     "status_pages": 180,
+    "wildfires": 900,
+    "coops": 300,
+    "wzdx": 1800,
     "cloud": 180,
     "adsb": 1200,
     "reddit": 1800,
@@ -77,6 +80,112 @@
       "name": "Square",
       "url": "https://www.issquareup.com",
       "category": "finance"
+    }
+  ],
+  "coops": [
+    {
+      "name": "Bandera Electric Co-op",
+      "state": "TX",
+      "slug": "bandera"
+    },
+    {
+      "name": "Concho Valley Electric Co-op",
+      "state": "TX",
+      "slug": "cvec"
+    },
+    {
+      "name": "Mountain View Electric Association",
+      "state": "CO",
+      "slug": "mvea"
+    },
+    {
+      "name": "Holy Cross Energy",
+      "state": "CO",
+      "slug": "holycross"
+    },
+    {
+      "name": "Yampa Valley Electric Association",
+      "state": "CO",
+      "slug": "yvea"
+    },
+    {
+      "name": "White River Electric Association",
+      "state": "CO",
+      "slug": "wrea"
+    }
+  ],
+  "wzdx_feeds": [
+    {
+      "name": "Minnesota",
+      "states": [
+        "MN"
+      ],
+      "url": "https://mn.carsprogram.org/carsapi_v1/api/wzdx"
+    },
+    {
+      "name": "Wisconsin",
+      "states": [
+        "WI"
+      ],
+      "url": "https://511wi.gov/api/wzdx"
+    },
+    {
+      "name": "Kansas",
+      "states": [
+        "KS"
+      ],
+      "url": "https://ks.carsprogram.org/carsapi_v1/api/wzdx"
+    },
+    {
+      "name": "Iowa",
+      "states": [
+        "IA"
+      ],
+      "url": "https://iowa-atms.cloud-q-free.com/api/rest/dataprism/wzdx/wzdxfeed"
+    },
+    {
+      "name": "Missouri",
+      "states": [
+        "MO"
+      ],
+      "url": "https://traveler.modot.org/timconfig/feed/desktop/mo_wzdx.json"
+    },
+    {
+      "name": "Maryland",
+      "states": [
+        "MD"
+      ],
+      "url": "https://filter.ritis.org/wzdx_v4.1/mdot.geojson"
+    },
+    {
+      "name": "New Jersey",
+      "states": [
+        "NJ"
+      ],
+      "url": "https://smartworkzones.njit.edu/nj/wzdx"
+    },
+    {
+      "name": "New Hampshire, Vermont, Maine",
+      "states": [
+        "NH",
+        "VT",
+        "ME"
+      ],
+      "url": "https://api.dx.ne-compass.com/wzdx-latest/"
+    },
+    {
+      "name": "Mississippi",
+      "states": [
+        "MS"
+      ],
+      "url": "https://api.mdottraffic.com/prod/v3/data/wzdx"
+    },
+    {
+      "name": "Florida",
+      "states": [
+        "FL"
+      ],
+      "url": "https://api.depot.fdot.gov/wzdx-latest"
     }
   ],
   "news_queries": [

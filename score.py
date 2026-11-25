@@ -21,7 +21,7 @@ BANDS = {"NORMAL": (0, 9), "WATCH": (10, 29), "ELEVATED": (30, 59), "SUSPECTED A
 CAP = {"NORMAL": 1, "WATCH": 12, "ELEVATED": 24, "SUSPECTED ATTACK": 36}   # raw points that fill a band
 
 WEIGHT = {"power": 10, "telecom": 10, "nuclear": 10, "aviation": 8, "internet": 8, "finance": 8, "cyber": 8,
-          "security": 6, "emergency": 6, "markets": 4, "natural": 4, "space": 3, "elite": 1}
+          "security": 6, "emergency": 6, "markets": 4, "natural": 4, "space": 3, "roads": 2, "elite": 1}
 LEVEL_F = {1: 0.4, 2: 1.0, 3: 1.8}
 
 

@@ -223,7 +223,7 @@ def assess(cats, mem, params, now, slow_fn=None):
     # reporting counts as credible on its own (see trust.py). {category: highest severity of such a news signal}
     cred = {}
     for k, c in cats.items():
-        if k in ("elite", "markets", "space", "natural"):
+        if k in ("elite", "markets", "space", "natural", "roads"):
             continue
         for s in c["signals"]:
             if s.kind == "news" and s.severity >= 2 and news_credible(getattr(s, "meta", None)):
@@ -232,7 +232,7 @@ def assess(cats, mem, params, now, slow_fn=None):
     # A debunk or denial only counts if it is about the same area as the story it would cancel (an unrelated "hoax bomb
     # threat" or "package was not malicious" headline must not switch off a real blackout), comes from a source with a
     # record, and there are at least two. Denials are never counted as attack headlines.
-    rel_areas = set(active) | set(cred) | {k for k in cats if cats[k]["level"] >= 2 and k not in ("elite", "markets", "space", "natural")}
+    rel_areas = set(active) | set(cred) | {k for k in cats if cats[k]["level"] >= 2 and k not in ("elite", "markets", "space", "natural", "roads")}
     rel_rx = re.compile("|".join(DOMAIN_KW[k] for k in rel_areas if k in DOMAIN_KW) or r"(?!x)x", re.I)
 
     def relevant(rx):         # denials: about an outage, from a source with a record, at least two

@@ -22,7 +22,7 @@ growing, go look", not "this is an attack". Every number is in the reasons the d
 from collectors import CATEGORIES
 from trust import credible as news_credible
 
-SKIP = {"elite", "local", "space", "natural"}
+SKIP = {"elite", "local", "space", "natural", "roads"}
 SEV_F = {1: 0.5, 2: 1.0, 3: 1.5}
 KIND_F = {"gov": 1.0, "private": 1.0, "news": 0.4, "social": 0.1, "system": 0.0}
 CREDIBLE_NEWS_F = 0.85

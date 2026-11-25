@@ -40,6 +40,14 @@ def _regionalize(sigs, key):
     out = []
     for s in sigs:
         tags = set(s.tags or [])
+        if "regional-only" in tags:             # a state-level feed (wildfire, co-op, roads): context outside its states
+            if key in (s.states or []) or not s.states:
+                out.append(s)
+            else:
+                c = copy.copy(s)
+                c.severity, c.tags = 0, list(s.tags) + ["regional-elsewhere"]
+                out.append(c)
+            continue
         weather = s.category == "natural"
         if not (s.kind == "gov" and s.states and len(s.states) < WIDE_STATES
                 and ({"official-hazard", "official-strategic"} & tags or weather)):
