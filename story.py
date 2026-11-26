@@ -278,7 +278,7 @@ def _reasons(label, res, cats, ok_n, total, down):
         add(d, t, tag, srcs, why)
 
     claims = res.get("claims") or []
-    if claims:
+    if claims and label != "NORMAL":   # on a normal day a loose post did not move anything, so it is not part of the reasoning
         cl = claims[0]
         add("soft" if cl["verdict"] in ("verified", "unverified") else "down",
             f"Viral {cl['platform']} post about {AREA.get(cl['category'], cl['category']).lower()}: {cl['verdict']} ({cl['score']}/100 believability)",

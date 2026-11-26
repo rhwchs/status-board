@@ -29,6 +29,7 @@ from email.utils import parsedate_to_datetime
 
 import credibility
 import geo
+import storyread
 import trust
 
 UA = "status-board/1.0 (public-data summary page)"
@@ -728,6 +729,28 @@ NEWS_FOLLOWUP_RX = re.compile(
     r"(?:days?|weeks?|months?|years?) after)\b", re.I)
 
 
+def parse_yahoo_news(raw, now=None):
+    """Yahoo News search results come back as a web page, not a feed. Pull out title, outlet, age and the real
+    article address (the result links are redirects that carry it in the RU= part)."""
+    now = now or time.time()
+    page = raw.decode("utf-8", "replace") if isinstance(raw, bytes) else raw
+    items = []
+    for blk in re.split(r'<div class="dd [^"]*NewsArticle', page)[1:]:
+        t = re.search(r'<h4 class="s-title[^>]*>\s*<a [^>]*href="([^"]+)"[^>]*>(.*?)</a>', blk, re.S)
+        if not t:
+            continue
+        href, title = t.group(1), re.sub(r"\s+", " ", strip_html(t.group(2))).strip()
+        m = re.search(r"/RU=([^/]+)/R[KV]=", href)
+        link = urllib.parse.unquote(m.group(1)) if m else html.unescape(href)
+        src = re.search(r'<span class="s-source[^>]*>(.*?)<span', blk, re.S) or re.search(r'<span class="s-source[^>]*>(.*?)</span>', blk, re.S)
+        age = re.search(r"(\d+)\s*(minute|hour|day|week)s?\s+ago", blk)
+        secs = {"minute": 60, "hour": 3600, "day": 86400, "week": 604800}
+        when = now - int(age.group(1)) * secs[age.group(2)] if age else None
+        pub = re.split(r"\s{2,}|\s\|\s|\s\u00b7\s|&middot;", strip_html(src.group(1)))[0].strip() if src else ""
+        items.append({"title": title, "link": link, "source": pub, "time": when})
+    return items
+
+
 def make_news(q):
     """Headline-volume detector. Counts distinct outlets covering a topic in the last hour
     and judges it against both fixed thresholds and this query's own learned baseline."""
@@ -750,6 +773,17 @@ def make_news(q):
                     _google_throttled()
         else:
             err1 = "throttled, backing off"
+        if items is None:
+            try:                       # Yahoo News is the first backup; it also gives the real article address
+                y = ("https://news.search.yahoo.com/rss?p=" + urllib.parse.quote(query) + "&btf=d&sort=time")
+                items = parse_yahoo_news(fetch(y, browser=True, timeout=15))
+                if not items:
+                    raise RuntimeError("Yahoo returned no results")
+                used = "Yahoo"
+                link = "https://news.search.yahoo.com/search?p=" + urllib.parse.quote(query) + "&btf=d&sort=time"
+            except Exception as e_y:
+                err1 = f"{err1}; Yahoo: {e_y}"
+                items = None
         if items is None:
             try:
                 items = parse_feed(fetch(b, browser=True))
@@ -788,6 +822,12 @@ def make_news(q):
                 followups += 1
             else:
                 kept.append(i)
+        # Read the stories behind the headlines that would count: a keyword match alone is not evidence.
+        story_read, story_dropped = 0, 0
+        if kept and not ctx_only and ctx.cfg.get("story_read", True):
+            kept, dropped_items, story_read = storyread.screen(kept, q["category"], fetch)
+            story_dropped = len(dropped_items)
+            story_read = sum(1 for i in kept + dropped_items if i.get('story') in ('real', 'passing'))
         # Stories about places overseas are WORLD context (a quiet line on the page), never evidence for the US alert scale.
         recent, abroad = geo.split(kept)
         if q.get("scope") == "world":                       # a whole query that is about the world, not about home
@@ -804,7 +844,7 @@ def make_news(q):
         n = len({i["pub"] for i in recent})                 # distinct outlets (shown, and kept for the filter checks)
         info = trust.summarize(recent, q["category"], ctx.cfg)   # who is reporting, with copies counted once
         n_eff = info["n_eff"]
-        if used == "Bing" and raw_n == 0:
+        if used in ("Bing", "Yahoo") and raw_n == 0:
             # Bing's index lags by hours, so an empty Bing result proves nothing. Report the source as
             # failed (keeps the previous alert alive) rather than a false "no coverage".
             held = _stand_in(query)
@@ -816,7 +856,7 @@ def make_news(q):
         rate = ctx.store.rate_severity(skey, n_eff, q.get("thresholds"), ctx.cfg.get("social_min_count", 5))
         ctx.store.record(skey, n_eff)
         sev = min(rate.sev, q.get("max_sev", 3))
-        ignored = unrelated + followups
+        ignored = unrelated + followups + story_dropped
         if n == 0:
             out = CollectResult(world_sigs, {"outlets_1h": 0, "ignored": ignored, "overseas_1h": len(abroad)})
             if used == "Google":
@@ -826,11 +866,14 @@ def make_news(q):
                 else f"still learning what is normal for this ({rate.n} of 8 readings)")
         base += (f" · {info['clusters']} independent report(s) from {n} outlet(s), {info['t1']} from top-tier outlets"
                  + (f", {info['syndicated']} copies of the same story counted once" if info["syndicated"] else ""))
+        if story_read:
+            base += (f" · read {story_read} stor{'y' if story_read == 1 else 'ies'}"
+                     + (f", {story_dropped} only mentioned it in passing" if story_dropped else ", all describe a real disruption"))
         if ignored:
             base += (f" · ignored {unrelated} unrelated and {followups} follow-up stor"
                      f"{'y' if unrelated + followups == 1 else 'ies'} about events already over")
-        if used == "Bing":
-            base += " · via Bing (Google is limiting requests)"
+        if used in ("Bing", "Yahoo"):
+            base += f" · via {used} (Google is limiting requests)"
         links = [{"title": f"{short(i['title'], 100)} — {i['pub']}", "url": i["link"]} for i in recent[:6]]
         out = CollectResult([Signal(q["category"], sev, f"News: {q['name']} — {info['clusters']} independent reports from {n} outlets in the last hour",
                                     link, base, key=key, links=links, meta=info,
