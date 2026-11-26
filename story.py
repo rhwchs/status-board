@@ -281,9 +281,9 @@ def _reasons(label, res, cats, ok_n, total, down):
     if claims:
         cl = claims[0]
         add("soft" if cl["verdict"] in ("verified", "unverified") else "down",
-            f"Viral {cl['platform']} post about {AREA.get(cl['category'], cl['category']).lower()}: {cl['verdict']} ({cl['score']}/100)",
+            f"Viral {cl['platform']} post about {AREA.get(cl['category'], cl['category']).lower()}: {cl['verdict']} ({cl['score']}/100 believability)",
             "Claim check", [{"title": _short(cl["text"], 90), "url": cl["url"], "by": cl["platform"], "kind": "social", "sev": 0,
-                             "links": []}], [p["why"] for p in cl["parts"][:4]], area="claim", label="Viral post")
+                             "links": []}], [f"{cl['score']}/100 is how much this post is worth believing, not how serious it is. Spreading (up to 30), the account (up to 30) and outside confirmation (up to 40) add up; fact-checks subtract. 65+ is verified, 35 or lower is a rumor."] + [p["why"] for p in cl["parts"][:4]], area="claim", label="Viral post")
     if down and label != "NO DATA":
         n = len(down)
         add("warn", f"{n} source{'s' if n > 1 else ''} not working: a quiet result counts for less", "Blind spot",

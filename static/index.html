@@ -34,7 +34,7 @@
          font:15px/1.4 Inter,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
          padding:max(16px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right))
                  max(32px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left)); }
-  main { max-width:900px; margin:0 auto; }
+  main { max-width:640px; margin:0 auto; }
   a { color:var(--link); text-decoration:none; word-break:break-word; }
   a:hover { text-decoration:underline; }
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:28px 0 10px; }
@@ -152,8 +152,8 @@
     .levelname { font-size:23px; }
     .levelname .lv { display:block; }
   }
-  /* Phones: logo and the current level sit at the top, centred. Desktop (wider than 600px) is untouched. */
-  @media (max-width:600px) {
+  /* Same single-column layout on phones and desktop: logo and the current level at the top, centred. */
+  @media all {
     main { display:flex; flex-direction:column; }
     main > * { order:5; }
     .brand { order:1; flex-direction:column; justify-content:center; gap:6px; text-align:center; }
@@ -230,7 +230,9 @@
   <div class="banner" id="banner"><div class="lvl">Connecting…</div></div>
   <details class="srcs"><summary>Sources</summary>
     <p class="meta srcnote">Everything I'm watching, by area, with the level each is showing.</p>
-    <div id="cats"></div></details>
+    <div id="cats"></div>
+    <details class="panel srchealth"><summary id="srcsum" style="cursor:pointer;padding:8px 0">Source health</summary>
+      <table id="src"></table></details></details>
   <div id="near"></div>
 
   <h2 id="detailsh">What might be causing this</h2>
@@ -240,10 +242,6 @@
 
   <h2>What changed recently</h2>
   <div class="panel log" id="log"><div class="meta">Nothing yet.</div></div>
-
-  <h2>Is everything working?</h2>
-  <details class="panel"><summary id="srcsum" style="cursor:pointer;padding:8px 0">Sources</summary>
-    <table id="src"></table></details>
 
   <h2>Check it yourself</h2>
   <div class="grid">
@@ -599,7 +597,7 @@ function render(d) {
     : '<div class="meta">Nothing yet — events appear here when a signal first rises above normal.</div>';
 
   const okN = d.sources.filter(s => s.ok).length;
-  document.getElementById('srcsum').textContent = `${okN} of ${d.sources.length} sources are working — tap for details`;
+  document.getElementById('srcsum').textContent = `${okN} of ${d.sources.length} sources working — tap for details`;
   document.getElementById('src').innerHTML =
     '<tr><th>Source</th><th>Type</th><th>Status</th><th>Last worked</th><th>Latest reading</th></tr>' +
     d.sources.map(s => `<tr><td>${link(s.home, s.name)}</td><td>${KIND[s.kind] || s.kind}</td>
