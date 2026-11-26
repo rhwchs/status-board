@@ -87,6 +87,7 @@ class RunState:
     signals: list = field(default_factory=list)
     secs: float = 0
     fails: int = 0
+    cats: set = field(default_factory=set)   # areas this source has reported into (so a failing source still has a home)
 
 
 class Ctx:
@@ -186,6 +187,7 @@ class Monitor:
                 st.ok, st.last_run, st.last_ok = True, t0, time.time()
                 st.error, st.fails = "", 0
                 st.metrics, st.signals = res.metrics, res.signals
+                st.cats |= {x.category for x in res.signals}
                 st.secs = time.time() - t0
             self.raw.write(t0, c.name, c.kind, True, "", st.secs, [x.to_dict() for x in res.signals], res.metrics)
         except Exception as e:  # a failed source is reported, never treated as "all clear"
@@ -510,6 +512,6 @@ class Monitor:
                 st = self.state[c.name]
                 sources.append({"name": c.name, "kind": c.kind, "home": c.home, "interval": c.interval,
                                 "ok": st.ok, "last_ok": st.last_ok, "last_run": st.last_run,
-                                "error": st.error, "metrics": st.metrics, "secs": round(st.secs, 1)})
+                                "error": st.error, "metrics": st.metrics, "secs": round(st.secs, 1), "cats": sorted(st.cats)})
             return {"now": now, "started": self.started, "analysis": self.analysis, "sources": sources,
                     "log": list(self.log)[:60]}

@@ -194,6 +194,11 @@
   }
   .reasoning .rh { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:16px 0 0; }
   details.srcs { margin:12px 0; }
+  .srcrows { padding:2px 0 8px; }
+  .srow { font-size:13px; padding:2px 0; }
+  .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; background:var(--dim); }
+  .dot.ok { background:var(--l0); }
+  .dot.bad { background:var(--l3); }
   details.srcs > summary { cursor:pointer; font-weight:700; padding:10px 14px; background:var(--panel); border:1px solid var(--line); border-radius:12px; }
   details.srcs[open] > summary { border-radius:12px 12px 0 0; }
   .srcnote { margin:8px 2px; }
@@ -229,10 +234,9 @@
   <div class="warn" id="warn"></div>
   <div class="banner" id="banner"><div class="lvl">Connecting…</div></div>
   <details class="srcs"><summary>Sources<span class="meta" id="srcsub"></span></summary>
-    <p class="meta srcnote">Everything I'm watching, by area, with the level each is showing.</p>
+    <p class="meta srcnote">Everything I'm watching, by area. Colors follow the scale; gray means no source in that area is working.</p>
     <div id="cats"></div>
-    <details class="panel srchealth"><summary style="cursor:pointer;padding:8px 0">Is each source working?</summary>
-      <table id="src"></table></details></details>
+</details>
   <div id="near"></div>
 
   <h2 id="detailsh">What might be causing this</h2>
@@ -582,19 +586,29 @@ function render(d) {
   const cats = Object.entries(a.categories).filter(([id]) => id !== 'local').sort((x, y) => y[1].level - x[1].level || x[1].label.localeCompare(y[1].label));
   const openIds = new Set([...document.querySelectorAll('details.cat[open]')].map(e => e.dataset.id));
   const first = !document.getElementById('cats').children.length;
+  const placed = new Set(cats.flatMap(([id, c]) => d.sources.filter(x => (x.cats || []).includes(id) || c.signals.some(y => y.source === x.name)).map(x => x.name)));
+  const lost = d.sources.filter(x => x.ok === false && !placed.has(x.name));
+  const unplaced = lost.length ? `<details class="cat" style="--cc:var(--lx)"><summary><span class="cname">Other sources not working</span><span class="pill">NO DATA</span></summary><div class="body"><div class="srcrows">${lost.map(x => `<div class="srow"><i class="dot bad"></i>${link(x.home, x.name)} <span class="meta">${KIND[x.kind] || esc(x.kind)} \u00B7 NOT WORKING</span></div>`).join('')}</div></div></details>` : '';
   document.getElementById('cats').innerHTML = cats.map(([id, c]) => {
     const live = c.signals.filter(s => s.severity > 0);
     const body = c.signals.length ? [...c.signals].sort((a, b) => byTrust(a, b) || (b.severity - a.severity)).map(sigHtml).join('') : '<div class="d" style="padding:8px 0">No data from sources for this domain.</div>';
+    // the sources behind this area: those that report into it (even if down now) plus any that produced its readings
+    const names = new Set(c.signals.map(x => x.source));
+    const mem = d.sources.filter(x => (x.cats || []).includes(id) || names.has(x.name)).sort(byTrust);
+    const downN = mem.filter(x => x.ok === false).length;
+    const noData = mem.length > 0 && downN === mem.length;
+    const quiet = mem.filter(x => !names.has(x.name));   // sources with a reading already show as cards below
+    const srcRows = quiet.length ? `<div class="srcrows">${quiet.map(x => `<div class="srow"><i class="dot ${x.ok ? 'ok' : x.ok === false ? 'bad' : ''}"></i>${link(x.home, x.name)} <span class="meta">${KIND[x.kind] || esc(x.kind)} \u00B7 ${x.ok ? 'working' : x.ok === false ? 'NOT WORKING' : 'starting'}${x.ok === false ? ' \u00B7 last worked ' + ago(x.last_ok) : ''}</span></div>`).join('')}</div>` : '';
     const isOpen = first ? c.level >= 1 : openIds.has(id);
     // Only official / technical sources can make an area look serious. News and social buzz is labelled as such.
     const sure = c.signals.some(x => x.severity >= 1 && (x.kind === 'gov' || x.kind === 'private'));
     const unconf = c.level >= 1 && !sure;
-    const pill = unconf ? 'UNCONFIRMED' : CATLVL[c.level];
-    return `<details class="cat" data-id="${id}" style="--cc:${unconf ? COLORS[1] : COLORS[c.level]}" ${isOpen ? 'open' : ''}>
+    const pill = noData ? 'NO DATA' : unconf ? 'UNCONFIRMED' : CATLVL[c.level];
+    return `<details class="cat" data-id="${id}" style="--cc:${noData ? 'var(--lx)' : unconf ? COLORS[1] : COLORS[c.level]}" ${isOpen ? 'open' : ''}>
       <summary><span class="cname">${esc(c.label)}</span>${live.length ? `<span class="meta">${live.length} signal${live.length>1?'s':''}</span>` : ''}
       <span class="pill">${pill}${c.corroborated ? ' ✓✓' : ''}</span></summary>
-      <div class="body">${body}</div></details>`;
-  }).join('');
+      <div class="body">${srcRows}${body}</div></details>`;
+  }).join('') + unplaced;
 
   document.getElementById('log').innerHTML = d.log.length
     ? d.log.map(e => `<div><span class="meta">${new Date(e.t*1000).toLocaleTimeString()}</span> &nbsp;${esc(e.text)}</div>`).join('')
@@ -602,12 +616,6 @@ function render(d) {
 
   const okN = d.sources.filter(s => s.ok).length;
   document.getElementById('srcsub').textContent = ` · ${okN} of ${d.sources.length} working`;
-  document.getElementById('src').innerHTML =
-    '<tr><th>Source</th><th>Type</th><th>Status</th><th>Last worked</th><th>Latest reading</th></tr>' +
-    d.sources.map(s => `<tr><td>${link(s.home, s.name)}</td><td>${KIND[s.kind] || s.kind}</td>
-      <td class="${s.ok ? 'ok' : s.ok === false ? 'bad' : ''}">${s.ok ? 'Working' : s.ok === false ? 'NOT WORKING' : 'starting…'}</td>
-      <td>${ago(s.last_ok)}</td>
-      <td>${s.ok === false ? esc(s.error) : esc(Object.entries(s.metrics).map(([k, v]) => k + ': ' + v).join(' · '))}</td></tr>`).join('');
 }
 
 let failures = 0;
