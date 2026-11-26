@@ -114,7 +114,9 @@
   .hero { display:flex; gap:14px; align-items:flex-start; }
   .hero .left { flex:1; min-width:0; }
   .eyebrow { font-size:11px; text-transform:uppercase; letter-spacing:.1em; color:var(--dim); font-weight:700; }
-  .purpose { font-size:13px; line-height:1.4; color:var(--dim); margin:0 0 10px; }
+  .purpose { font-size:13px; line-height:1.4; color:var(--dim); margin:14px 0 0; }
+  #banner .purpose { text-align:center; }
+  details.srcs > summary .meta { font-weight:400; color:var(--dim); }
   .levelname { font-size:26px; font-weight:800; line-height:1.15; margin:0 0 6px; color:var(--lc,var(--l0)); }
   .levelname .cs { color:var(--text); font-weight:700; }
   .desc { font-size:16px; line-height:1.45; margin:0; }
@@ -160,7 +162,6 @@
     #banner { order:2; }
     #warn { order:3; margin:12px 0 0; }
     details.srcs { order:3; }
-    .purpose { order:4; margin:14px 0 0; text-align:center; }
     .brand svg { height:48px; }
     .hero { flex-direction:column; align-items:center; gap:12px; }
     .hero .left { text-align:center; width:100%; }
@@ -225,13 +226,12 @@
 <body>
 <main>
   <header class="brand" id="brand" aria-label="Probably Fine"></header>
-  <p class="purpose">This page watches public sources for events that could affect you, and gives an informed opinion on whether to consider changing your immediate plans or preparations.</p>
   <div class="warn" id="warn"></div>
   <div class="banner" id="banner"><div class="lvl">Connecting…</div></div>
-  <details class="srcs"><summary>Sources</summary>
+  <details class="srcs"><summary>Sources<span class="meta" id="srcsub"></span></summary>
     <p class="meta srcnote">Everything I'm watching, by area, with the level each is showing.</p>
     <div id="cats"></div>
-    <details class="panel srchealth"><summary id="srcsum" style="cursor:pointer;padding:8px 0">Source health</summary>
+    <details class="panel srchealth"><summary style="cursor:pointer;padding:8px 0">Is each source working?</summary>
       <table id="src"></table></details></details>
   <div id="near"></div>
 
@@ -547,11 +547,12 @@ function render(d) {
         <p class="desc">${desc}</p>
       </div>
       <div><ol class="scale" aria-label="Alert scale">${scale}</ol>${step === null ? '<div class="scalenote">No reading: not an all-clear.</div>' : ''}</div></div>
+     <p class="purpose">This page watches public sources for events that could affect you, and gives an informed opinion on whether to consider changing your immediate plans or preparations.</p>
      ${worldHtml(world)}
      <div id="evpanels"></div>
      ${act && po.name ? `<div class="posture" style="margin-top:14px"><span class="plabel">Suggested posture</span><b>${esc(po.name)}</b><span class="pline">${esc(po.line)}</span>${st.cause ? `<span class="pline">${esc(st.cause)}</span>` : ''}</div>` : ''}
      <div class="reasoning"><h2 class="rh">Reasoning</h2>${(act ? reasons : whyNot).length ? `<ul class="why">${(act ? reasons : whyNot).map(reasonHtml).join('')}</ul>` : '<p class="meta">Nothing to report.</p>'}</div>
-     <div class="foot">Showing events that can reach <b>${esc(view.who)}</b>${view.personal ? '' : ' \u00B7 add your area below for a personal read'} \u00B7 ${d.sources.filter(x => x.ok).length} of ${d.sources.length} sources working${down ? `, ${down} not` : ''} \u00B7 ${when}</div>`;
+     <div class="foot">Showing events that can reach <b>${esc(view.who)}</b>${view.personal ? '' : ' \u00B7 add your area below for a personal read'} \u00B7 ${when}</div>`;
   // chips open the sources behind each thing that is going on
   const panels = banner.querySelector('#evpanels');
   const evOf = k => reasons.concat(world).find(r => r.text === k);
@@ -600,7 +601,7 @@ function render(d) {
     : '<div class="meta">Nothing yet — events appear here when a signal first rises above normal.</div>';
 
   const okN = d.sources.filter(s => s.ok).length;
-  document.getElementById('srcsum').textContent = `${okN} of ${d.sources.length} sources working — tap for details`;
+  document.getElementById('srcsub').textContent = ` · ${okN} of ${d.sources.length} working`;
   document.getElementById('src').innerHTML =
     '<tr><th>Source</th><th>Type</th><th>Status</th><th>Last worked</th><th>Latest reading</th></tr>' +
     d.sources.map(s => `<tr><td>${link(s.home, s.name)}</td><td>${KIND[s.kind] || s.kind}</td>

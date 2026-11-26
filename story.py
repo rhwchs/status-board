@@ -293,7 +293,7 @@ def _reasons(label, res, cats, ok_n, total, down):
     calm_first = False
     if label == "NORMAL":      # on a normal day the reasoning leads with why it is normal; anything unconfirmed follows it
         quiet = [s for c in cats.values() for s in c["signals"] if s.kind in ("gov", "private") and s.severity == 0][:8]
-        add("down", f"All {ok_n} working sources look normal", "Checked", [_src(s) for s in quiet])
+        add("down", "Every working source looks normal", "Checked", [_src(s) for s in quiet])
         calm_first = True
 
     out.sort(key=lambda r: _DIR_ORDER[r["dir"]])
