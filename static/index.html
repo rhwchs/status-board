@@ -292,7 +292,7 @@ function drawBrand(step) {
     <circle cx="17" cy="34" r="8.16" style="fill:var(--logo-screw);opacity:var(--logo-screw-op)"/>
     <circle cx="153" cy="34" r="8.16" style="fill:var(--logo-screw);opacity:var(--logo-screw-op)"/>
     ${vialSvg(step)}</svg>`;
-  document.getElementById('brand').innerHTML = logo + '<div class="wm"><b>Probably Fine</b><span>Fair warning</span></div>';
+  document.getElementById('brand').innerHTML = logo + '<div class="wm"><b>Probably Fine</b><span>Fair Warning on events that impact you.</span></div>';
   const fav = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="40 -11 90 90">${vialSvg(step)}</svg>`;
   document.getElementById('favicon').href = 'data:image/svg+xml,' + encodeURIComponent(fav);
   const touch = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 180 180" width="180" height="180"><rect width="180" height="180" rx="40" fill="#17212B"/>`
