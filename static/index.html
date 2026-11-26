@@ -308,6 +308,9 @@ function drawBrand(step) {
   } catch (e) {}
 }
 drawBrand(null);
+// Most trusted first: official and live data, then news, then social media last.
+const KINDRANK = {gov:0, private:1, news:2, system:3, social:4};
+const byTrust = (a, b) => (KINDRANK[a.kind] ?? 3) - (KINDRANK[b.kind] ?? 3);
 const KIND = {gov:'Government', private:'Company/research', news:'News', social:'Social media', system:'Monitor'};
 const SEVW = {1:'heads-up', 2:'serious', 3:'critical'};
 const PLAIN = {
@@ -461,7 +464,7 @@ async function browserNear() {
 
 const REASON_ICON = {up:'\u25B2', soft:'\u25CF', down:'\u25BC', warn:'!'};
 function reasonHtml(r) {
-  const srcs = (r.sources || []).map(x => {
+  const srcs = [...(r.sources || [])].sort(byTrust).map(x => {
     const sub = (x.links || []).map(l => `<li>${link(l.url, l.title)}</li>`).join('');
     return `<div class="rs"><span class="badge">${KIND[x.kind] || esc(x.kind)}</span>${link(x.url, x.title)}${x.by ? ` <span class="by">${esc(x.by)}</span>` : ''}${sub ? `<ul>${sub}</ul>` : ''}</div>`;
   }).join('');
@@ -580,7 +583,7 @@ function render(d) {
   const first = !document.getElementById('cats').children.length;
   document.getElementById('cats').innerHTML = cats.map(([id, c]) => {
     const live = c.signals.filter(s => s.severity > 0);
-    const body = c.signals.length ? c.signals.map(sigHtml).join('') : '<div class="d" style="padding:8px 0">No data from sources for this domain.</div>';
+    const body = c.signals.length ? [...c.signals].sort((a, b) => byTrust(a, b) || (b.severity - a.severity)).map(sigHtml).join('') : '<div class="d" style="padding:8px 0">No data from sources for this domain.</div>';
     const isOpen = first ? c.level >= 1 : openIds.has(id);
     // Only official / technical sources can make an area look serious. News and social buzz is labelled as such.
     const sure = c.signals.some(x => x.severity >= 1 && (x.kind === 'gov' || x.kind === 'private'));
