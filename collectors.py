@@ -1124,15 +1124,21 @@ def adsb(ctx):
     r_total = ctx.store.baseline("adsb:airborne", same_hour=True)
     base_total = r_total[0]
     ctx.store.record("adsb:airborne", total)
+    # OpenSky is volunteer-run: its receiver coverage changes, and the count also falls overnight and on holidays, so a
+    # low count alone is weak evidence. A moderate shortfall is a WATCH at most; a serious call needs the count to be
+    # near zero across two checks in a row (the FAA ground-stop feed is the real detector).
+    very_low = total < 100 or (bool(base_total) and total / base_total < 0.15)
+    low = total < 150 or (bool(base_total) and total / base_total < 0.4)
+    with ctx.store.lock:
+        hist = list(ctx.store.history.get("adsb:lowflag", []))
+    prev_low = bool(hist and hist[-1][1] and time.time() - hist[-1][0] < 3 * 3600)
+    ctx.store.record("adsb:lowflag", 1 if (very_low or low) else 0)
     sev = 0
-    if total < 100:
-        sev = 3
-    elif total < 300:
-        sev = 2
-    if base_total:
-        ratio = total / base_total
-        sev = max(sev, 3 if ratio < 0.15 else 2 if ratio < 0.4 else 0)
-    note = (f"normal for this hour is about {base_total:.0f}" if base_total
+    if total < 100 and prev_low:
+        sev = 3 if total < 30 else 2        # almost no aircraft, twice running: the fleet really may be down
+    elif total < 100:
+        sev = 1                             # almost no aircraft, but only once: a WATCH until the next check agrees
+    note = (f"normal for this hour is about {base_total:.0f}" + (" (below that, but a low count alone is not treated as a problem: the data comes from volunteer receivers and dips overnight and on holidays)" if low and sev == 0 else "") if base_total
             else "still learning what is normal for this hour (needs about a day)")
     sigs.append(Signal("aviation", sev, f"Aircraft in the air over the US right now: {total}", "https://opensky-network.org/network/explorer",
                        note, key="adsb:total"))

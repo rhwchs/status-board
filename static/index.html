@@ -27,7 +27,6 @@
     :root { --bg:#F6F2EA; --panel:#FFFDF8; --panel2:#EEE8DC; --line:#E0D8C8; --text:#17212B; --dim:#5D6670;
             --link:#1F5FA8; --lx:#6B7486;
             --logo-body:#17212B; --logo-screw:#6B7280; --logo-screw-op:1; }
-    .levelname .lv { color:color-mix(in srgb, var(--lc) 62%, #17212B); }
   }
   * { box-sizing:border-box; }
   body { margin:0; background:var(--bg); color:var(--text);
@@ -38,8 +37,7 @@
   a { color:var(--link); text-decoration:none; word-break:break-word; }
   a:hover { text-decoration:underline; }
   h2 { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:28px 0 10px; }
-  .banner { border-radius:14px; padding:18px; background:var(--panel); border:1px solid var(--line);
-            border-left:8px solid var(--lc,var(--l0)); }
+  .banner { border-radius:16px; padding:22px 20px; background:var(--panel); border:1px solid var(--line); }
   .banner .lvl { font-size:30px; font-weight:800; letter-spacing:.02em; color:var(--lc,var(--l0)); }
   .banner ul { margin:8px 0 0; padding-left:18px; }
   .chip { display:inline-block; font-size:12px; font-weight:800; letter-spacing:.08em; padding:3px 10px; border-radius:99px;
@@ -51,8 +49,9 @@
   .story li { margin:4px 0; }
   .story .todo { background:var(--panel2); border-radius:10px; padding:10px 12px; margin-top:12px; font-size:16px; }
   .story .louder { color:var(--dim); font-size:14px; margin-top:12px; }
-  .near { margin-top:12px; border-left:8px solid var(--nc,var(--l0)); }
-  .near .nh { font-weight:800; font-size:17px; }
+  .near { margin-top:12px; border-radius:16px; padding:14px 18px; }
+  .near .nh { font-weight:800; font-size:17px; display:flex; align-items:center; gap:8px; }
+  .near .nh::before { content:''; flex:none; width:10px; height:10px; border-radius:50%; background:var(--nc,var(--l0)); }
   .near .nm { color:var(--dim); font-size:12px; text-transform:uppercase; letter-spacing:.08em; margin-bottom:2px; }
   .near ul { margin:8px 0 4px; padding-left:20px; }
   .gauge { margin:14px 0 4px; }
@@ -71,8 +70,7 @@
   .near .chg { font-size:13px; color:var(--dim); background:none; border:0; padding:0; font-weight:400; text-decoration:underline; margin-top:6px; }
   .meta { color:var(--dim); font-size:13px; margin-top:10px; }
   .warn { background:var(--l4); color:#fff; padding:10px 14px; border-radius:10px; margin-bottom:12px; display:none; font-weight:600; }
-  details.cat { background:var(--panel); border:1px solid var(--line); border-radius:12px; margin-bottom:8px;
-                border-left:6px solid var(--cc,var(--l0)); }
+  details.cat { background:var(--panel); border:1px solid var(--line); border-radius:12px; margin-bottom:8px; }
   details.cat > summary { cursor:pointer; padding:12px 14px; display:flex; gap:10px; align-items:center;
                           list-style:none; }
   details.cat > summary::-webkit-details-marker { display:none; }
@@ -117,10 +115,9 @@
   .purpose { font-size:13px; line-height:1.4; color:var(--dim); margin:14px 0 0; }
   #banner .purpose { text-align:center; }
   details.srcs > summary .meta { font-weight:400; color:var(--dim); }
-  .levelname { font-size:26px; font-weight:800; line-height:1.15; margin:0 0 6px; color:var(--lc,var(--l0)); }
-  .levelname .cs { color:var(--text); font-weight:700; }
   .desc { font-size:16px; line-height:1.45; margin:0; }
-  .evchip { font:inherit; font-size:14px; font-weight:700; padding:2px 10px; margin:2px 2px 2px 0; border-radius:99px; cursor:pointer;
+  .evchip { font:inherit; font-size:14px; font-weight:700; padding:2px 12px; margin:2px 2px 2px 0; border-radius:99px; cursor:pointer;
+            min-height:36px; display:inline-flex; align-items:center; vertical-align:middle;
             border:1px solid var(--lc,var(--l1)); background:transparent; color:var(--text); }
   .evchip::after { content:' \25BE'; color:var(--dim); }
   .evchip[aria-expanded=true] { background:var(--lc,var(--l1)); color:var(--on); }
@@ -130,29 +127,38 @@
   .evpanel .rs { margin:6px 0; }
   .evpanel ul { margin:4px 0 0; padding-left:18px; }
   .evpanel .by { color:var(--dim); font-size:12px; }
-  ol.scale { list-style:none; margin:0; padding:0; width:196px; flex:none; display:grid; gap:3px; }
-  ol.scale li { display:grid; grid-template-columns:12px 1fr; align-items:baseline; column-gap:7px; font-size:11.5px; font-weight:700;
-                padding:3px 9px; border-radius:7px; border:1px solid var(--line); color:var(--dim); line-height:1.25; }
-  ol.scale li b { text-align:center; }
-  ol.scale li small { display:block; font-size:10.5px; font-weight:500; opacity:.85; }
-  ol.scale li.on { color:var(--so,var(--on)); border-color:transparent; background:var(--sc); font-size:12.5px; padding:5px 9px;
-                   box-shadow:0 0 0 2px var(--panel), 0 0 0 4px var(--sc); margin:2px 0; }
-  ol.scale li.na { opacity:.4; }
-  ol.scale li .sw { display:none; }
-  .scalenote { font-size:10px; color:var(--dim); margin-top:4px; width:196px; }
+  /* the scale: one horizontal bar of five segments, 1 to 5 left to right; the current step full colour and taller */
+  ol.scale { list-style:none; margin:18px 0 0; padding:0; display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px; }
+  ol.scale li { display:flex; flex-direction:column; gap:7px; font-size:12px; font-weight:500; color:var(--dim); line-height:1.25; }
+  ol.scale li .seg { display:block; height:8px; margin-top:3px; border-radius:99px; background:var(--sc); opacity:.3; }
+  ol.scale li small { display:block; margin-top:2px; font-size:11px; font-weight:500; color:var(--dim); }
+  ol.scale li.on { color:var(--text); font-weight:700; }
+  ol.scale li.on .seg { height:14px; margin-top:0; opacity:1; }
+  ol.scale li.na .seg { opacity:.15; }
+  .scalenote { font-size:12px; color:var(--dim); margin-top:6px; }
+  .lvchip { display:inline-block; font-size:13px; font-weight:700; letter-spacing:.04em; text-transform:uppercase;
+            padding:5px 12px; border-radius:99px; background:var(--lc,var(--lx)); color:var(--lcf,var(--ink)); }
+  .lvrow { display:flex; align-items:center; justify-content:center; gap:10px; }
+  .lvicon { width:64px; height:auto; flex:none; display:block; }
+  .headline { font-size:34px; line-height:1.15; font-weight:800; letter-spacing:-.02em; margin:12px 0 8px; }
+  .lvsay { font-size:17px; line-height:1.5; max-width:34em; margin:0 auto; }
+  .warn.snap { display:block; background:transparent; color:var(--dim); border:1px solid var(--line); border-radius:99px;
+               font-size:13px; font-weight:500; padding:6px 14px; text-align:center; margin:0 auto 12px; }
   .brand { display:flex; align-items:center; gap:14px; margin:2px 0 10px; }
   .brand svg { height:60px; width:auto; flex:none; display:block; }
   .brand .wm b { display:block; font-size:25px; font-weight:600; letter-spacing:-.015em; line-height:1.1; }
   .brand .wm span { display:block; font-size:13px; color:var(--dim); margin-top:2px; }
   @media (max-width:520px) {
-    .hero { flex-direction:column; gap:12px; }
-    ol.scale, .scalenote { width:100%; max-width:none; }
     .brand { gap:11px; }
     .brand svg { height:44px; }
     .brand .wm b { font-size:21px; }
     .brand .wm span { font-size:12px; }
-    .levelname { font-size:23px; }
-    .levelname .lv { display:block; }
+    .headline { font-size:28px; }
+    .lvsay { font-size:16px; }
+    .banner { padding:20px 14px; }
+    ol.scale { gap:3px; margin-left:-8px; margin-right:-8px; }
+    ol.scale li { font-size:10.5px; }
+    ol.scale li small { font-size:10px; }
   }
   /* Same single-column layout on phones and desktop: logo and the current level at the top, centred. */
   @media all {
@@ -163,21 +169,9 @@
     #warn { order:3; margin:12px 0 0; }
     details.srcs { order:3; }
     .brand svg { height:48px; }
-    .hero { flex-direction:column; align-items:center; gap:12px; }
+    .hero { flex-direction:column; align-items:center; gap:0; }
     .hero .left { text-align:center; width:100%; }
     .hero > div:last-child { width:100%; }
-    .levelname { font-size:23px; }
-    .levelname .lv { display:block; }
-    ol.scale, .scalenote { width:100%; max-width:none; }
-    /* colour key on the right of each level: dimmed, except the current reading in full colour */
-    ol.scale li { grid-template-columns:12px 1fr 56px; align-items:stretch; }
-    ol.scale li b, ol.scale li span { align-self:center; }
-    ol.scale li .sw { display:block; align-self:stretch; margin:-3px -9px -3px 0; border-radius:0 6px 6px 0; background:var(--sc); }
-    ol.scale li .sw svg { display:block; width:100%; height:100%; padding:4px 5px; box-sizing:border-box; }
-    ol.scale li:not(.on) .sw svg { opacity:.55; }
-    ol.scale li:not(.on) .sw { background:color-mix(in srgb, var(--sc) 40%, var(--panel)); }
-    ol.scale li.on .sw { opacity:1; margin:-5px -9px -5px 0; }
-    ol.scale li.na .sw { opacity:.2; }
   }
   .world { margin-top:14px; font-size:13px; }
   .world .wt { font-weight:700; color:var(--text); }
@@ -205,7 +199,7 @@
   .whynot { margin-top:12px; font-size:13px; }
   .whynot > summary { cursor:pointer; color:var(--dim); }
   .whynot ul.why { margin-top:6px; }
-  .posture { background:var(--panel2); border-radius:10px; padding:10px 14px; border-left:4px solid var(--lc,var(--l0)); }
+  .posture { background:var(--panel2); border-radius:12px; padding:12px 14px; }
   .posture .plabel { display:block; font-size:11px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); }
   .posture b { font-size:21px; }
   .posture .pline { display:block; font-size:14px; color:var(--dim); margin-top:2px; }
@@ -272,6 +266,7 @@
 
 <script>
 const COLORS = {0:'var(--l0)',1:'var(--l1)',2:'var(--l2)',3:'var(--l3)'};
+// Lundy's tagline for each level: the big line on the status card, and the small line under each step of the scale.
 const STEPTAG = ['Probably fine today.', "That's interesting.", 'Look at this.', "Something's up.", 'This is happening.'];
 
 // ---- brand: a spirit level whose vial colour and bubble follow the current step (step 1 = bubble centred)
@@ -282,10 +277,6 @@ function vialSvg(step) {
   return `<rect x="44.2" y="12.24" width="81.6" height="43.52" rx="21.76" fill="${c}"/>${ln(63.24)}${ln(106.76)}`
        + `<ellipse cx="${bx}" cy="34" rx="13.06" ry="8.7" fill="#F6F2EA"/>`
        + `<ellipse cx="${bx - 3}" cy="${34 - 2.6}" rx="3.9" ry="2.2" fill="#fff" opacity="0.9"/>`;
-}
-function lvlIcon(step) {   // the level's vial marks (two lines and the bubble at this level's spot), drawn on the colour block
-  const bx = 85 + (step - 1) * 5, ln = x => `<line x1="${x}" y1="20.9" x2="${x}" y2="47.1" stroke="#17212B" stroke-width="3.4" stroke-linecap="round" opacity="0.9"/>`;
-  return `<svg viewBox="44.2 12.24 81.6 43.52">${ln(63.24)}${ln(106.76)}<ellipse cx="${bx}" cy="34" rx="13.06" ry="8.7" fill="#F6F2EA"/><ellipse cx="${bx - 3}" cy="${34 - 2.6}" rx="3.9" ry="2.2" fill="#fff" opacity="0.9"/></svg>`;
 }
 let brandStep;
 function drawBrand(step) {
@@ -535,20 +526,27 @@ function render(d) {
     desc = esc(scl.line) + (otherEv.length ? ' Also unusual: ' + andList(otherEv.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`)) + '.' : '');
   } else if (step === 2 && events.length) {
     const chips = events.map(r => `<button class="evchip" data-k="${esc(r.text)}" aria-expanded="false">${esc(r.area_label)}</button>`);
-    desc = 'Something unusual is happening involving ' + andList(chips)
-         + (confirmedBy ? '.' : ', but no official source has confirmed it.');
+    desc = "We're watching " + andList(chips) + '.'
+         + (confirmedBy ? '' : ' No official source has confirmed it.');
   } else if (step === 1) {
     const ok = reasons.find(r => r.tag === 'Checked' && r.sources.length);
     desc = esc(scl.line) + (ok ? ` <button class="evchip" data-k="${esc(ok.text)}" aria-expanded="false">${esc(ok.text)}</button>` : '');
   } else desc = esc(scl.line);
-  // worst step on top, Normal Conditions at the bottom
-  const scale = (scl.names || []).map((n, i) => `<li class="${step === i + 1 ? 'on' : step === null ? 'na' : ''}" style="--sc:${STEPCOL[i + 1]}${i === 4 ? ';--so:#fff' : ''}"${step === i + 1 ? ' aria-current="step"' : ''}><b>${i + 1}</b><span>${esc(n)}<small>${STEPTAG[i] || ''}</small></span><i class="sw" aria-hidden="true">${lvlIcon(i + 1)}</i></li>`).reverse().join('');
-  const heading = step ? `Level ${step} ${esc(scl.name)}` : esc(scl.name);
+  // one horizontal bar, step 1 on the left; the current step is full colour and taller
+  const scale = (scl.names || []).map((n, i) => `<li class="${step === i + 1 ? 'on' : step === null ? 'na' : ''}" style="--sc:${STEPCOL[i + 1]}"${step === i + 1 ? ' aria-current="step"' : ''}><i class="seg" aria-hidden="true"></i><span>${esc(n)}<small>${STEPTAG[i] || ''}</small></span></li>`).join('');
+  // The status card, top to bottom: the level icon, the level, that level's tagline, then one short sentence.
+  // The sentence (.lvsay) is the slot for the action-ladder step later; for now it describes what is going on.
+  banner.style.setProperty('--lcf', step === 5 ? '#fff' : 'var(--ink)');
+  const chip = step ? `Level ${step} · ${esc(scl.name)}` : esc(scl.name);
+  const tagline = step ? STEPTAG[step - 1] : PLAIN['NO DATA'];
+  if (desc && desc.replace(/<[^>]*>/g, '').trim() === tagline) desc = '';
+  const icon = `<svg class="lvicon" viewBox="40 8 90 52" aria-hidden="true">${vialSvg(step)}</svg>`;
   const whyNot = reasons.filter(r => step === 1 ? true : (r.dir === 'down' || r.dir === 'warn'));
   banner.innerHTML =
     `<div class="hero"><div class="left">
-        <h1 class="levelname"><span class="cs">Current status:</span> <span class="lv">${heading}</span></h1>
-        <p class="desc">${desc}</p>
+        <div class="lvrow">${icon}<span class="lvchip">${chip}</span></div>
+        <h1 class="headline">${esc(tagline)}</h1>
+        ${desc ? `<p class="desc lvsay">${desc}</p>` : ''}
       </div>
       <div><ol class="scale" aria-label="Alert scale">${scale}</ol>${step === null ? '<div class="scalenote">No reading: not an all-clear.</div>' : ''}</div></div>
      <p class="purpose">This page watches public sources for events that could affect you, and gives an informed opinion on whether to consider changing your immediate plans or preparations.</p>
@@ -640,8 +638,8 @@ if (SNAP) {
   const when = new Date(SNAP.now*1000).toLocaleString(), old_ = age >= 0.2 ? ' (' + (age < 1.5 ? Math.round(age*60) + ' minutes' : age.toFixed(1) + ' hours') + ' old)' : '';
   w.textContent = HOSTED
     ? 'Checked ' + when + old_ + '. This page refreshes itself about every 15 minutes. It is not live, and it is not for life-safety decisions.'
-    : 'This is a SNAPSHOT from ' + when + old_ + '. It does not update by itself. Run the snapshot command again for fresh results.';
-  w.style.display = 'block'; w.style.background = 'var(--panel2)'; w.style.color = 'var(--text)'; w.style.border = '1px solid var(--line)';
+    : 'Snapshot from ' + when + old_ + ' · not live. Run the snapshot command to refresh.';
+  w.classList.add('snap');
   if (HOSTED) {   // pick up the newest published copy while the page is open or when the phone wakes it
     setInterval(() => { if (!document.hidden) location.reload(); }, 10 * 60 * 1000);
     document.addEventListener('visibilitychange', () => { if (!document.hidden && Date.now()/1000 - SNAP.now > 20 * 60) location.reload(); });
