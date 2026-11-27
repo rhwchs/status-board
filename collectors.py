@@ -30,6 +30,7 @@ from email.utils import parsedate_to_datetime
 import credibility
 import freshness
 import geo
+import signalwords
 import storyread
 import trust
 
@@ -51,6 +52,10 @@ CATEGORIES = {
     "space":     "Solar storms (can act like an EMP)",
     "natural":   "Earthquakes and natural events",
     "roads":     "Roads and highways",
+    "fuel":      "Fuel and gas",
+    "water":     "Water systems",
+    "transport": "Rail, ports and bridges",
+    "industrial": "Industrial and chemical sites",
     "elite":     "Wealthy people leaving (weak signal)",
     "local":     "Near you",          # your own county: shown on its own card, never feeds the national alarm
 }
@@ -730,6 +735,12 @@ NEWS_FOLLOWUP_RX = re.compile(
     r"(?:days?|weeks?|months?|years?) after)\b", re.I)
 
 
+# Areas where a headline must pair an infrastructure noun with an event word (see signalwords.py). Violence and
+# geopolitics are about people, not assets, so they keep the plain keyword search and only get the noise filter.
+PAIR_AREAS = {"power", "telecom", "internet", "cyber", "aviation", "finance", "fuel", "water", "transport", "industrial"}
+_LOCAL_RX = [None]       # private place names, loaded from data/local_terms.json by build_collectors
+
+
 def _old_news(text):
     """True for a post or headline about an event that is already over: follow-ups, probes, or an older date."""
     return bool(NEWS_FOLLOWUP_RX.search(text) or freshness.stale_reason(text))
@@ -822,7 +833,9 @@ def make_news(q):
         kept, unrelated, followups = [], 0, 0
         for i in recent:
             t = i["title"]
-            if NEWS_NOISE_RX.search(t) or (exc and exc.search(t)) or not all(r.search(t) for r in req):
+            sw = signalwords.analyze(t, _LOCAL_RX[0], q["category"])
+            if NEWS_NOISE_RX.search(t) or (exc and exc.search(t)) or not all(r.search(t) for r in req) \
+                    or (not ctx_only and (sw["junk"] or (q["category"] in PAIR_AREAS and not sw["pair"]))):
                 unrelated += 1
             elif not ctx_only and (NEWS_FOLLOWUP_RX.search(t) or freshness.stale_reason(t, now)):
                 followups += 1
@@ -835,6 +848,9 @@ def make_news(q):
             story_dropped = len(dropped_items)
             story_read = sum(1 for i in kept + dropped_items if i.get('story') in ('real', 'passing', 'stale'))
             story_old = sum(1 for i in dropped_items if i.get('story') == 'stale')
+        kept_sw = [signalwords.analyze(i["title"], _LOCAL_RX[0], q["category"]) for i in kept]
+        priority = any(x["pair"] and x["mult"] for x in kept_sw)        # scale / official / agency / local wording
+        solid = any(x["solid"] for x in kept_sw)                        # at least one strong event word
         # Stories about places overseas are WORLD context (a quiet line on the page), never evidence for the US alert scale.
         recent, abroad = geo.split(kept)
         if q.get("scope") == "world":                       # a whole query that is about the world, not about home
@@ -850,7 +866,7 @@ def make_news(q):
                                      meta=winfo))
         n = len({i["pub"] for i in recent})                 # distinct outlets (shown, and kept for the filter checks)
         info = trust.summarize(recent, q["category"], ctx.cfg)   # who is reporting, with copies counted once
-        n_eff = info["n_eff"]
+        n_eff = info["n_eff"] + (1.0 if priority and not ctx_only else 0)   # urgent wording counts as one more independent report
         if used in ("Bing", "Yahoo") and raw_n == 0:
             # Bing's index lags by hours, so an empty Bing result proves nothing. Report the source as
             # failed (keeps the previous alert alive) rather than a false "no coverage".
@@ -863,6 +879,8 @@ def make_news(q):
         rate = ctx.store.rate_severity(skey, n_eff, q.get("thresholds"), ctx.cfg.get("social_min_count", 5))
         ctx.store.record(skey, n_eff)
         sev = min(rate.sev, q.get("max_sev", 3))
+        if q["category"] in PAIR_AREAS and not ctx_only and kept and not solid:
+            sev = min(sev, 1)        # only everyday words (fire, leak, outage): a WATCH at most until something confirms it
         ignored = unrelated + followups + story_dropped
         if n == 0:
             out = CollectResult(world_sigs, {"outlets_1h": 0, "ignored": ignored, "overseas_1h": len(abroad)})
@@ -1377,6 +1395,43 @@ def carrier_drop(values):
     return ratio, vals[-1]
 
 
+def make_radar_carriers(token):
+    """Cloudflare Radar, per carrier: ongoing network outages and traffic anomalies on AT&T, Verizon and T-Mobile.
+    Replaces the IODA carrier check when IODA is down, and works alongside it when it is up."""
+    def fn(ctx):
+        h = {"Authorization": f"Bearer {token}"}
+        base = "https://api.cloudflare.com/client/v4/radar/"
+        down, answered = [], 0
+        for name, asn in CARRIERS.items():
+            hit = False
+            for ep, key in (("annotations/outages", "annotations"), ("traffic_anomalies", "trafficAnomalies")):
+                try:
+                    d = fetch_json(f"{base}{ep}?dateRange=1d&asn={asn}&limit=10", headers=h, timeout=20)
+                except Exception:
+                    continue
+                if not d.get("success", False):
+                    continue
+                answered += 1
+                for a in (d.get("result") or {}).get(key) or []:
+                    ended = a.get("endDate") or (a.get("endTime"))
+                    if not ended and str(a.get("status", "")).upper() != "FALSE_POSITIVE":
+                        hit = True
+            if hit:
+                down.append(name)
+        if answered == 0:
+            raise RuntimeError("Cloudflare Radar carrier data unavailable")
+        url = "https://radar.cloudflare.com/outage-center?location=US"
+        sigs = [Signal("telecom", 1, f"{n} network: Cloudflare Radar reports an ongoing outage or traffic anomaly", url,
+                       "Live measurement of the carrier's own network traffic.", key=f"radar:carrier:{n}") for n in down]
+        if len(down) >= 2:
+            sigs.append(Signal("telecom", 2, f"{' and '.join(down)} networks affected at the same time", url,
+                               "Two or more major carriers showing outages together.", key="radar:carriers"))
+        if not down:
+            sigs.append(Signal("telecom", 0, "Cloudflare Radar: no ongoing outages on AT&T, Verizon or T-Mobile", url, key="radar:carriers:none"))
+        return CollectResult(sigs, {"carriers_with_outage": ", ".join(down) or "none"})
+    return fn
+
+
 def ioda_carriers(ctx):
     """Georgia Tech IODA active probing per mobile/home carrier network: how many of each carrier's address blocks
     answer, against that carrier's own last six hours. One carrier dropping = a phones signal; two at once = stronger."""
@@ -1645,6 +1700,7 @@ def make_wzdx(feeds):
 
 def build_collectors(cfg, data_dir=None):
     iv = cfg["intervals"]
+    _LOCAL_RX[0] = signalwords.load_local(data_dir) if data_dir else None
     cs = [
         Collector("FAA air traffic status", "gov", "https://nasstatus.faa.gov/", iv["faa"], faa_nas),
         Collector("NWS emergency alerts", "gov", "https://alerts.weather.gov/", iv["nws"], nws_alerts),
@@ -1693,6 +1749,8 @@ def build_collectors(cfg, data_dir=None):
     if cf_token:   # optional: only registered when a token exists, so it never shows as a "failed" source
         cs.append(Collector("Cloudflare Radar outages", "private", "https://radar.cloudflare.com/outage-center",
                             iv.get("radar", 300), make_cloudflare_radar(cf_token)))
+        cs.append(Collector("Cloudflare Radar carrier outages (AT&T, Verizon, T-Mobile)", "private",
+                            "https://radar.cloudflare.com/outage-center", iv.get("radar", 300), make_radar_carriers(cf_token)))
     loc = cfg.get("local")
     if loc:
         cs.append(Collector(f"Weather Service alerts for {loc['name']}", "gov",

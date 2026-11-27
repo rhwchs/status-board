@@ -29,6 +29,10 @@ TOPIC = {
     "cyber": r"cyber\w*|ransomware|hack\w*|breach\w*|malware|\bsystems?\b|network",
     "security": r"explosions?|blasts?|bomb\w*|attack\w*|shooting|gunfire|casualt\w*|killed|injured|evacuat\w*",
     "nuclear": r"nuclear|missiles?|\bEMP\b|pulse|radiation|strikes?",
+    "fuel": r"pipelines?|refiner\w+|fuel|gasoline|natural gas|gas stations?|\bLNG\b",
+    "water": r"water|\bdams?\b|reservoirs?|wastewater|treatment",
+    "transport": r"rail\w*|trains?|derail\w+|bridges?|\bports?\b|interstate|highway|tunnel",
+    "industrial": r"chemical|nuclear|hazmat|\bSCADA\b|industrial|plant",
     "finance": r"banks?|banking|\bATMs?\b|payments?|withdraw\w*|markets?|trading|\bFDIC\b|deposits?",
 }
 # a concrete effect on people or services, deliberately not generic words like "officials said"
@@ -60,6 +64,11 @@ def _text(raw):
     return out[:40]
 
 
+# Hacks are described by what was reached, not by outages, so the cyber check also accepts these effects.
+CYBER_IMPACT = (r"compromis\w+|exposed|stolen|steal\w*|accessed|breach(?:ed|es)\b|sensitive|classified|unauthori[sz]ed|"
+                r"intrud\w+|infiltrat\w+|exfiltrat\w+|ransom\w*|encrypted|locked out|data")
+
+
 def judge(paragraphs, category):
     """Pure text check, no network: 'real' if one paragraph holds both the topic and a concrete effect."""
     if not paragraphs:
@@ -67,7 +76,7 @@ def judge(paragraphs, category):
     if freshness.stale_reason(" ".join(paragraphs[:6])):      # the opening paragraphs say the event was long ago
         return "stale"
     topic = re.compile(TOPIC.get(category, TOPIC["security"]), re.I)
-    impact = re.compile(IMPACT, re.I)
+    impact = re.compile(IMPACT + ("|" + CYBER_IMPACT if category == "cyber" else ""), re.I)
     for p in paragraphs:
         if topic.search(p) and impact.search(p):
             return "real"

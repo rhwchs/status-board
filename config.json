@@ -230,6 +230,72 @@
       "query": "cyberattack OR \"cyber attack\" \"critical infrastructure\" OR nationwide OR \"water system\" OR hospitals OR airline"
     },
     {
+      "name": "Hack of government or military systems",
+      "category": "cyber",
+      "thresholds": [
+        5,
+        10,
+        20
+      ],
+      "max_sev": 1,
+      "query": "(hackers breach OR hacked OR \"cyber espionage\" OR \"cyber intrusion\") (Pentagon OR military OR \"Air Force\" OR Army OR Navy OR \"federal agency\" OR \"State Department\" OR Treasury OR \"power grid\" OR \"water system\" OR airline OR hospital)"
+    },
+    {
+      "name": "Fuel and pipeline disruption",
+      "category": "fuel",
+      "thresholds": [
+        4,
+        8,
+        15
+      ],
+      "max_sev": 2,
+      "query": "(pipeline OR refinery OR \"fuel shortage\" OR \"gas stations\" OR \"fuel terminal\") (explosion OR cyberattack OR ransomware OR shutdown OR halts OR sabotage OR shortage OR rupture OR leak)"
+    },
+    {
+      "name": "Water system disruption",
+      "category": "water",
+      "thresholds": [
+        4,
+        8,
+        15
+      ],
+      "max_sev": 2,
+      "query": "(\"water treatment\" OR \"water system\" OR \"water utility\" OR \"water main\" OR dam) (cyberattack OR ransomware OR hacked OR sabotage OR contamination OR \"do not drink\" OR \"boil water\" OR failure)"
+    },
+    {
+      "name": "Rail, port and bridge disruption",
+      "category": "transport",
+      "thresholds": [
+        4,
+        8,
+        15
+      ],
+      "max_sev": 2,
+      "query": "(derailment OR \"bridge collapse\" OR \"port closure\" OR \"rail service suspended\" OR \"interstate closed\") (nationwide OR multi-state OR sabotage OR cyberattack OR collapse OR shutdown OR hazmat)"
+    },
+    {
+      "name": "Industrial and chemical site incident",
+      "category": "industrial",
+      "thresholds": [
+        4,
+        8,
+        15
+      ],
+      "max_sev": 2,
+      "query": "(\"chemical plant\" OR \"nuclear plant\" OR hazmat OR SCADA OR \"industrial control\") (explosion OR leak OR evacuation OR cyberattack OR hacked OR shutdown)"
+    },
+    {
+      "name": "Named state-hacker campaigns",
+      "category": "cyber",
+      "thresholds": [
+        3,
+        6,
+        10
+      ],
+      "max_sev": 1,
+      "query": "\"Volt Typhoon\" OR \"Salt Typhoon\" OR \"actively exploited\" zero-day"
+    },
+    {
       "name": "Terror / coordinated attack",
       "exclude": "\\b(game|gaming|fortnite|call of duty)\\b",
       "category": "security",

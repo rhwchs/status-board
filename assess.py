@@ -46,6 +46,8 @@ DOMAIN_KW = {   # words that tie a headline to an area (so a debunk of something
     "aviation": r"flight|airport|airline|faa|airspace|ground stop|grounded", "cyber": r"cyber|hack|ransom|breach|malware|ddos",
     "security": r"explosion|bomb|attack|shoot|terror|gunfire|blast|hostage|evacuat|sabotage",
     "nuclear": r"nuclear|missile|radiation|\bemp\b|nuke|strike",
+    "fuel": r"pipeline|refiner|fuel|gasoline|natural gas", "water": r"water|dam\b|reservoir|wastewater",
+    "transport": r"rail|train|derail|bridge|port\b|interstate|highway", "industrial": r"chemical|nuclear plant|hazmat|scada|industrial",
 }
 
 HYP = {

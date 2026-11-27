@@ -14,6 +14,8 @@ NOUN = {
     "cyber": "Hacking and cyber attacks", "security": "Attacks and violence",
     "nuclear": "Nuclear, missile or EMP threats", "space": "Solar storms", "natural": "Earthquakes and natural events",
     "emergency": "Civil emergency alerts", "elite": "Wealthy people leaving",
+    "fuel": "Fuel and gas", "water": "Water systems", "transport": "Rail, ports and bridges",
+    "industrial": "Industrial and chemical sites",
 }
 
 HEAD = {
@@ -60,6 +62,10 @@ NO_FEED = {
     "nuclear": "apart from Weather Service civil-emergency alerts I have no fast official source for this, "
                "so I can't rule it out",
     "elite": "the only data I have is private-jet traffic, a rough proxy, so I can't confirm or rule it out",
+    "fuel": "I have no fast official source for pipelines or fuel supply (federal fuel data runs a week behind), so I can't confirm or rule it out",
+    "water": "I have no fast official source for water systems, so I can't confirm or rule it out",
+    "transport": "I have no fast official source for rail, ports or bridges, so I can't confirm or rule it out",
+    "industrial": "I have no fast official source for industrial and chemical sites, so I can't confirm or rule it out",
 }
 
 
@@ -82,6 +88,7 @@ AREA = {
     "aviation": "Flights", "telecom": "Phones & 911", "power": "Power", "internet": "Internet", "finance": "Banks",
     "markets": "Markets", "cyber": "Hacking", "security": "Violence", "nuclear": "Nuclear / missile",
     "emergency": "Emergency alerts", "space": "Solar storm", "natural": "Natural events", "roads": "Roads",
+    "fuel": "Fuel", "water": "Water", "transport": "Rail & ports", "industrial": "Industrial sites",
 }
 HYP_SHORT = {"accident": "an accident or equipment failure", "natural": "weather or a solar storm",
              "hoax": "a false alarm or rumor", "cyber": "a cyber attack", "physical": "a physical attack",
@@ -346,7 +353,7 @@ def _near(local, loc):
 
 WORLD_LABEL = {"Geopolitical escalation": "Geopolitics", "Nuclear / missile / EMP": "Missiles & nuclear",
                "Terror / coordinated attack": "Terror", "Explosions / mass casualty": "Explosions",
-               "Cyberattack on infrastructure": "Cyber", "Infrastructure sabotage": "Sabotage"}
+               "Cyberattack on infrastructure": "Cyber", "Hack of government or military systems": "Cyber", "Infrastructure sabotage": "Sabotage"}
 
 
 # For the place shown beside a world headline: demonyms, leaders and groups name the country they belong to.
