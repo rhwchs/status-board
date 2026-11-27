@@ -22,6 +22,11 @@ AGO_RX = re.compile(r"\b(?:(?:two|three|four|five|six|seven|several|a few|few|\d
 LIVE_RX = re.compile(r"\b(?:today|tonight|this\s+(?:morning|afternoon|evening)|right\s+now|just\s+now|breaking|"
                      r"minutes?\s+ago|an\s+hour\s+ago|hours?\s+ago|currently|ongoing|still\s+(?:down|out|grounded))\b", re.I)
 OLD_DAYS = 3
+# Softer than "stale": the story is news today, but what it describes happened some time ago (a breach found "within the
+# past month", disclosed now). Such stories still count, but never as proof that something is happening right now.
+EARLIER_RX = re.compile(r"\b(?:(?:within|in|over|during)\s+the\s+(?:past|last)\s+(?:month|few\s+weeks|several\s+weeks|couple\s+of\s+weeks|weeks)|"
+                        r"in\s+recent\s+(?:weeks|months)|for\s+(?:weeks|months)|since\s+(?:last\s+)?(?:month|summer|spring|fall|autumn)|"
+                        r"discovered\s+(?:in|during)\s+(?:the\s+)?(?:past|last)\s+\w+)\b", re.I)
 
 
 def _mentioned_dates(text, now):
@@ -60,3 +65,10 @@ def stale_reason(text, now=None):
     if AGO_RX.search(text):
         return "about something from weeks ago"
     return ""
+
+
+def earlier_reason(text):
+    """Return a short reason if the text says the event happened some while ago (but is only being reported now)."""
+    if not text or LIVE_RX.search(text):
+        return ""
+    return "happened earlier, only now reported" if EARLIER_RX.search(text) else ""

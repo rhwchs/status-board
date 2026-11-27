@@ -7,6 +7,8 @@ cancelled, injuries, a service offline) close together in the same paragraph.
 
     verdict "real"     the body describes a disruption in this area; the headline counts
     verdict "passing"  the body only mentions the topic in passing; the headline is dropped
+    verdict "earlier"  the body describes a real event, but one that happened some weeks ago and is only now reported;
+                       it counts, but never as proof of something happening right now
     verdict "stale"    the body is about an event from days or weeks ago (dates, "two weeks ago"); the headline is dropped
     verdict "unread"   the story could not be opened (paywall, block, timeout); the headline counts as before, marked unread
 
@@ -79,7 +81,7 @@ def judge(paragraphs, category):
     impact = re.compile(IMPACT + ("|" + CYBER_IMPACT if category == "cyber" else ""), re.I)
     for p in paragraphs:
         if topic.search(p) and impact.search(p):
-            return "real"
+            return "earlier" if freshness.earlier_reason(" ".join(paragraphs[:6])) else "real"
     return "passing"
 
 

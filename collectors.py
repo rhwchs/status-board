@@ -519,8 +519,19 @@ def make_eia_grid(key):
                   ("sort[0][column]", "period"), ("sort[0][direction]", "desc"), ("length", "300")]
         params += [("facets[type][]", t) for t in ("D", "DF")]
         params += [("facets[respondent][]", r) for r in GRID_REGIONS]
-        d = fetch_json("https://api.eia.gov/v2/electricity/rto/region-data/data/?" + urllib.parse.urlencode(params),
-                       timeout=40)
+        # EIA's server answers in under a second when healthy but sometimes hangs or drops the connection, so try
+        # a few quick attempts instead of one long wait.
+        url = "https://api.eia.gov/v2/electricity/rto/region-data/data/?" + urllib.parse.urlencode(params)
+        d, last = None, None
+        for attempt in range(4):
+            try:
+                d = fetch_json(url, timeout=15)
+                break
+            except Exception as e:
+                last = e
+                time.sleep(2 * (attempt + 1))
+        if d is None:
+            raise RuntimeError(f"EIA did not answer after 4 quick tries ({type(last).__name__}: {str(last)[:80]})")
         rows = (d.get("response") or {}).get("data") or []
         if not rows:
             raise RuntimeError("EIA returned no rows")
@@ -554,7 +565,7 @@ def make_eia_grid(key):
             ts = datetime.strptime(p, "%Y-%m-%dT%H").replace(tzinfo=timezone.utc).timestamp()
             if resp == "US48":
                 if time.time() - ts > 8 * 3600:
-                    raise RuntimeError(f"EIA data is stale (latest hour {p} UTC)")
+                    raise RuntimeError(f"EIA's own grid data has stopped updating: newest hour is {p} UTC, about {int((time.time() - ts) // 3600)} hours old (the delay is at EIA)")
                 summary = {"data_hour_utc": p, "us48_demand_vs_forecast": f"{ratio:.0%}",
                            "regions_reporting": f"{newest} of {prev} (hour before)"}
             if sev == 0 and resp != "US48":
@@ -842,12 +853,13 @@ def make_news(q):
             else:
                 kept.append(i)
         # Read the stories behind the headlines that would count: a keyword match alone is not evidence.
-        story_read, story_dropped, story_old = 0, 0, 0
+        story_read, story_dropped, story_old, story_earlier = 0, 0, 0, 0
         if kept and not ctx_only and ctx.cfg.get("story_read", True):
             kept, dropped_items, story_read = storyread.screen(kept, q["category"], fetch)
             story_dropped = len(dropped_items)
-            story_read = sum(1 for i in kept + dropped_items if i.get('story') in ('real', 'passing', 'stale'))
+            story_read = sum(1 for i in kept + dropped_items if i.get('story') in ('real', 'earlier', 'passing', 'stale'))
             story_old = sum(1 for i in dropped_items if i.get('story') == 'stale')
+            story_earlier = sum(1 for i in kept if i.get('story') == 'earlier')
         kept_sw = [signalwords.analyze(i["title"], _LOCAL_RX[0], q["category"]) for i in kept]
         priority = any(x["pair"] and x["mult"] for x in kept_sw)        # scale / official / agency / local wording
         solid = any(x["solid"] for x in kept_sw)                        # at least one strong event word
@@ -866,6 +878,9 @@ def make_news(q):
                                      meta=winfo))
         n = len({i["pub"] for i in recent})                 # distinct outlets (shown, and kept for the filter checks)
         info = trust.summarize(recent, q["category"], ctx.cfg)   # who is reporting, with copies counted once
+        not_current = story_read >= 2 and story_earlier * 2 >= story_read     # most stories read say it happened earlier
+        if not_current:
+            info = dict(info, t1=0)          # not a right-now confirmation, so no "several top outlets" credit
         n_eff = info["n_eff"] + (1.0 if priority and not ctx_only else 0)   # urgent wording counts as one more independent report
         if used in ("Bing", "Yahoo") and raw_n == 0:
             # Bing's index lags by hours, so an empty Bing result proves nothing. Report the source as
@@ -879,6 +894,8 @@ def make_news(q):
         rate = ctx.store.rate_severity(skey, n_eff, q.get("thresholds"), ctx.cfg.get("social_min_count", 5))
         ctx.store.record(skey, n_eff)
         sev = min(rate.sev, q.get("max_sev", 3))
+        if not_current:
+            sev = 0                  # reported now, but it happened earlier: listed under Sources, never moves the level
         if q["category"] in PAIR_AREAS and not ctx_only and kept and not solid:
             sev = min(sev, 1)        # only everyday words (fire, leak, outage): a WATCH at most until something confirms it
         ignored = unrelated + followups + story_dropped
@@ -893,7 +910,9 @@ def make_news(q):
                  + (f", {info['syndicated']} copies of the same story counted once" if info["syndicated"] else ""))
         if story_read:
             base += (f" · read {story_read} stor{'y' if story_read == 1 else 'ies'}"
-                     + (f", {story_dropped} dropped ({story_old} about older events)" if story_dropped else ", all describe a real disruption"))
+                     + (f", {story_dropped} dropped ({story_old} about older events)" if story_dropped
+                        else "" if not_current else ", all describe a real disruption")
+                     + (f"; {story_earlier} say it happened earlier, so it is listed quietly and does not move the level" if not_current else ""))
         if ignored:
             base += (f" · ignored {unrelated} unrelated and {followups} follow-up stor"
                      f"{'y' if unrelated + followups == 1 else 'ies'} about events already over")

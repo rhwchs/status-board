@@ -228,8 +228,11 @@ def assess(cats, mem, params, now, slow_fn=None):
         if k in ("elite", "markets", "space", "natural", "roads"):
             continue
         for s in c["signals"]:
-            if s.kind == "news" and s.severity >= 2 and news_credible(getattr(s, "meta", None)):
+            if s.kind == "news" and s.severity >= 1 and news_credible(getattr(s, "meta", None)):
                 cred[k] = max(cred.get(k, 0), s.severity)
+    # Three or more independent top-tier outlets report a hack: no need to wait for officials. Only when no essential service is
+    # failing: a hack alongside real outages stays under the full attack-versus-accident analysis (a software bug can look the same).
+    hack_cred = cred.get("cyber", 0) >= 1 and not life
 
     # A debunk or denial only counts if it is about the same area as the story it would cancel (an unrelated "hoax bomb
     # threat" or "package was not malicious" headline must not switch off a real blackout), comes from a source with a
@@ -264,8 +267,10 @@ def assess(cats, mem, params, now, slow_fn=None):
         ev[h].append({"pts": round(pts * (mult if scaled and pts > 0 else 1), 1), "why": why})
 
     # accident / vendor  (the base rate applies to failures that nothing else already explains)
-    if gate:
+    if gate and not hack_cred:
         add("accident", prior, "Most big outages turn out to be accidents, so that is the starting assumption")
+    if hack_cred:
+        add("cyber", 5, "Several independent top-tier news outlets report a hack (government sources have not confirmed it, and are often slow to)")
     vend = [s for s in prim_sigs if s.key.startswith(("status:", "cloud:", "radar:"))]
     if vend:
         add("accident", 2, f"A company or cloud provider has reported its own problem: {vend[0].title[:80]}")
@@ -356,7 +361,7 @@ def assess(cats, mem, params, now, slow_fn=None):
     life_cred = [k for k in cred_dom if k in LIFELINE]
     life_cred = [k for k in life_cred if k not in debunked]
     sec_cred = cred.get("security", 0) >= 3 and "security" not in debunked
-    canary = len(life_cred) >= 2 or sec_cred
+    canary = len(life_cred) >= 2 or sec_cred or (hack_cred and "cyber" not in debunked)
     if sec_cred:
         add("physical", 3, "Several independent top-tier news outlets report a large-scale or coordinated attack "
                            "(government sources have not confirmed it yet, and they are often slow to)", True)
@@ -458,10 +463,12 @@ def assess(cats, mem, params, now, slow_fn=None):
     top, second = ranked[0], ranked[1]
     if not any_active:
         verdict = "Nothing unusual is happening right now."
-    elif score[top] < 2:
-        verdict = "Something is happening, but there is not enough evidence yet to say why."
+    elif hack_cred and "cyber" not in debunked:
+        verdict = "Several top-tier outlets are reporting a hack. That is treated as real without waiting for officials."
+    elif score[top] < 2 or level < 3:
+        verdict = "Something is happening, but the cause is not established yet, and I won't guess."
     elif score[top] - score[second] < margin:
-        verdict = (f"The cause is not clear yet. Best guesses so far: {_lc(HYP[top])} (score {score[top]:g}) "
+        verdict = (f"The cause is not clear yet. Leading possibilities: {_lc(HYP[top])} (score {score[top]:g}) "
                    f"or {_lc(HYP[second])} (score {score[second]:g}).")
     else:
         verdict = (f"Best explanation so far: {_lc(HYP[top])} (score {score[top]:g}). "

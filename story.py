@@ -274,9 +274,6 @@ def _reasons(label, res, cats, ok_n, total, down):
         srcs = [_src(s) for s in (cats.get(key, {}).get("signals", []) + cats.get("natural", {}).get("signals", [])
                                   + cats.get("space", {}).get("signals", [])) if s.severity >= 1][:5]
         calm.append(("down", f"{AREA.get(key, dom)}: {_because(why)}", "Harmless cause", srcs, []))
-    if top and top["key"] in ("accident", "natural", "hoax") and 1 <= res["level"] <= 2:
-        calm.append(("down", f"Most likely {HYP_SHORT[top['key']]}", "Best guess", [],
-                     [f"{e['pts']:+g} {e['why']}" for e in top["evidence"][:4]]))
     if res["level"] >= 1 and not any(c["primary"] for c in res["clusters"]) and not res.get("canary"):
         quiet = [s for k in ("aviation", "telecom", "internet", "power") for s in cats[k]["signals"]
                  if s.kind in ("gov", "private") and s.severity == 0][:5]
