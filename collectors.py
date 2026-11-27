@@ -28,6 +28,7 @@ from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
 
 import credibility
+import freshness
 import geo
 import storyread
 import trust
@@ -725,8 +726,13 @@ NEWS_NOISE_RX = re.compile(
 NEWS_FOLLOWUP_RX = re.compile(
     r"\b(restored|resolved|back online|back up and running|what we know|what to know|explained|explainer|"
     r"why did|why do|how did|what caused|root cause|aftermath|anniversary|years? ago|apolog(?:y|ies|ize|izes)|"
-    r"lessons|no evidence|not (?:a |an )?(?:cyber ?)?attack|not malicious|ruled out|"
+    r"lessons|no evidence|not (?:a |an )?(?:cyber ?)?attack|not malicious|ruled out|probe|culprit|investigation into|"
     r"(?:days?|weeks?|months?|years?) after)\b", re.I)
+
+
+def _old_news(text):
+    """True for a post or headline about an event that is already over: follow-ups, probes, or an older date."""
+    return bool(NEWS_FOLLOWUP_RX.search(text) or freshness.stale_reason(text))
 
 
 def parse_yahoo_news(raw, now=None):
@@ -818,16 +824,17 @@ def make_news(q):
             t = i["title"]
             if NEWS_NOISE_RX.search(t) or (exc and exc.search(t)) or not all(r.search(t) for r in req):
                 unrelated += 1
-            elif not ctx_only and NEWS_FOLLOWUP_RX.search(t):
+            elif not ctx_only and (NEWS_FOLLOWUP_RX.search(t) or freshness.stale_reason(t, now)):
                 followups += 1
             else:
                 kept.append(i)
         # Read the stories behind the headlines that would count: a keyword match alone is not evidence.
-        story_read, story_dropped = 0, 0
+        story_read, story_dropped, story_old = 0, 0, 0
         if kept and not ctx_only and ctx.cfg.get("story_read", True):
             kept, dropped_items, story_read = storyread.screen(kept, q["category"], fetch)
             story_dropped = len(dropped_items)
-            story_read = sum(1 for i in kept + dropped_items if i.get('story') in ('real', 'passing'))
+            story_read = sum(1 for i in kept + dropped_items if i.get('story') in ('real', 'passing', 'stale'))
+            story_old = sum(1 for i in dropped_items if i.get('story') == 'stale')
         # Stories about places overseas are WORLD context (a quiet line on the page), never evidence for the US alert scale.
         recent, abroad = geo.split(kept)
         if q.get("scope") == "world":                       # a whole query that is about the world, not about home
@@ -868,7 +875,7 @@ def make_news(q):
                  + (f", {info['syndicated']} copies of the same story counted once" if info["syndicated"] else ""))
         if story_read:
             base += (f" · read {story_read} stor{'y' if story_read == 1 else 'ies'}"
-                     + (f", {story_dropped} only mentioned it in passing" if story_dropped else ", all describe a real disruption"))
+                     + (f", {story_dropped} dropped ({story_old} about older events)" if story_dropped else ", all describe a real disruption"))
         if ignored:
             base += (f" · ignored {unrelated} unrelated and {followups} follow-up stor"
                      f"{'y' if unrelated + followups == 1 else 'ies'} about events already over")
@@ -925,6 +932,8 @@ def make_reddit(cfg):
             for it in items:
                 if it["time"] and now - it["time"] > 3600:
                     continue
+                if _old_news(it["title"]):
+                    continue
                 scanned += 1
                 for cat, rx in kw.items():
                     if rx.search(it["title"]):
@@ -952,6 +961,7 @@ def make_bluesky(cfg):
                 continue
             ok += 1
             cat = q["category"]
+            posts = [p for p in posts if not _old_news((p.get("record") or {}).get("text", ""))]   # chatter about an older event
             times = [parse_time(p.get("indexedAt")) for p in posts]
             counts[cat] = counts.get(cat, 0) + rate_per_hour(times, 100, time.time())
             for p in posts[:3]:

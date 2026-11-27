@@ -7,6 +7,7 @@ cancelled, injuries, a service offline) close together in the same paragraph.
 
     verdict "real"     the body describes a disruption in this area; the headline counts
     verdict "passing"  the body only mentions the topic in passing; the headline is dropped
+    verdict "stale"    the body is about an event from days or weeks ago (dates, "two weeks ago"); the headline is dropped
     verdict "unread"   the story could not be opened (paywall, block, timeout); the headline counts as before, marked unread
 
 Verdicts are cached for hours, and each news check opens only a few stories, so this adds little traffic.
@@ -14,6 +15,8 @@ Verdicts are cached for hours, and each news check opens only a few stories, so 
 import html
 import re
 import time
+
+import freshness
 
 CACHE_HOURS = 6
 MAX_READS = 4            # stories opened per news check
@@ -61,6 +64,8 @@ def judge(paragraphs, category):
     """Pure text check, no network: 'real' if one paragraph holds both the topic and a concrete effect."""
     if not paragraphs:
         return "unread"
+    if freshness.stale_reason(" ".join(paragraphs[:6])):      # the opening paragraphs say the event was long ago
+        return "stale"
     topic = re.compile(TOPIC.get(category, TOPIC["security"]), re.I)
     impact = re.compile(IMPACT, re.I)
     for p in paragraphs:
@@ -98,5 +103,5 @@ def screen(items, category, fetch, max_reads=MAX_READS, now=None):
             reads += 1
         v = read(url, category, fetch, now)
         i["story"] = v
-        (dropped if v == "passing" else kept).append(i)
+        (dropped if v in ("passing", "stale") else kept).append(i)
     return kept, dropped, reads
