@@ -166,7 +166,7 @@
     main > * { order:5; }
     .brand { order:1; flex-direction:column; justify-content:center; gap:6px; text-align:center; }
     #banner { order:2; }
-    #warn { order:3; margin:12px 0 0; }
+    #warn { order:4; margin:0 0 12px; }
     details.srcs { order:3; }
     .brand svg { height:48px; }
     .hero { flex-direction:column; align-items:center; gap:0; }
@@ -186,15 +186,21 @@
     .world li a { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; white-space:normal; }
     .world .wmeta { display:block; }
   }
+  .rsent { font-size:16px; line-height:1.45; margin:8px 0 6px; }
+  ul.rlinks { list-style:none; margin:0 0 4px; padding:0; font-size:13px; }
+  ul.rlinks li { padding:4px 0; }
+  ul.rlinks .by { color:var(--dim); font-size:12px; }
+  /* the Sources expander is the bottom of the same card as the level and its reasoning */
+  .banner { border-bottom-left-radius:0; border-bottom-right-radius:0; border-bottom:0; }
+  details.srcs { margin:0 0 12px; background:var(--panel); border:1px solid var(--line); border-top:1px solid var(--line); border-radius:0 0 16px 16px; padding:0 20px 4px; }
+  details.srcs > summary { cursor:pointer; font-weight:700; border:0; background:transparent; border-radius:0; padding:12px 0; }
+  details.srcs[open] > summary { border-radius:0; }
   .reasoning .rh { font-size:13px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:16px 0 0; }
-  details.srcs { margin:12px 0; }
   .srcrows { padding:2px 0 8px; }
   .srow { font-size:13px; padding:2px 0; }
   .dot { display:inline-block; width:9px; height:9px; border-radius:50%; margin-right:8px; background:var(--dim); }
   .dot.ok { background:var(--l0); }
   .dot.bad { background:var(--l3); }
-  details.srcs > summary { cursor:pointer; font-weight:700; padding:10px 14px; background:var(--panel); border:1px solid var(--line); border-radius:12px; }
-  details.srcs[open] > summary { border-radius:12px 12px 0 0; }
   .srcnote { margin:8px 2px; }
   .whynot { margin-top:12px; font-size:13px; }
   .whynot > summary { cursor:pointer; color:var(--dim); }
@@ -227,7 +233,7 @@
   <header class="brand" id="brand" aria-label="Probably Fine"></header>
   <div class="warn" id="warn"></div>
   <div class="banner" id="banner"><div class="lvl">Connecting…</div></div>
-  <details class="srcs"><summary>Sources<span class="meta" id="srcsub"></span></summary>
+  <details class="srcs"><summary>All sources<span class="meta" id="srcsub"></span></summary>
     <p class="meta srcnote">Everything I'm watching, by area. Colors follow the scale; gray means no source in that area is working.</p>
     <div id="cats"></div>
 </details>
@@ -457,6 +463,36 @@ async function browserNear() {
   document.getElementById('chg').onclick = () => { try { localStorage.removeItem('sb_loc'); } catch (e) {} browserNear(); if (SNAP) render(SNAP); };
 }
 
+// Reasoning as one complete sentence, then the links behind it (most trusted first, social last).
+function reasonSentence(step, name, list) {
+  const main = list.filter(r => r.dir !== 'warn').slice(0, 3).map(r => {
+    let t = String(r.text || '').replace(/[.\s]+$/, '');
+    const pre = r.area_label ? r.area_label + ': ' : '';
+    if (pre && t.startsWith(pre)) return `${lc1(r.area_label)} shows \u201C${t.slice(pre.length)}\u201D`;
+    return lc1(t);
+  }).filter(Boolean);
+  // a blind spot ("4 sources not working: a quiet result counts for less") becomes a clause of its own
+  const blind = list.find(r => r.dir === 'warn');
+  let tail = '';
+  if (blind) {
+    const m = String(blind.text).match(/^(\d+) sources? not working/);
+    tail = m ? `, although ${m[1]} source${m[1] === '1' ? ' is' : 's are'} not working, so a quiet result counts for less`
+             : ', although ' + lc1(String(blind.text).replace(/[.\s]+$/, ''));
+  }
+  if (!main.length && !tail) return step === 1 ? 'Nothing unusual is showing up in any source I check.' : 'Nothing specific is driving this yet.';
+  const lead = step ? `This is Level ${step} (${name}) because ` : 'There is no reading because ';
+  return lead + (main.length ? andList(main) : 'nothing specific stands out') + tail + '.';
+}
+function reasonLinks(list) {
+  const seen = new Set(), out = [];
+  for (const x of list.flatMap(r => r.sources || []).sort(byTrust)) {
+    if (!x.url || seen.has(x.url)) continue;
+    seen.add(x.url);
+    out.push(`<li><span class="badge">${KIND[x.kind] || esc(x.kind)}</span>${link(x.url, x.title)}${x.by ? ` <span class="by">${esc(x.by)}</span>` : ''}</li>`);
+    if (out.length >= 6) break;
+  }
+  return out.length ? `<ul class="rlinks">${out.join('')}</ul>` : '';
+}
 const REASON_ICON = {up:'\u25B2', soft:'\u25CF', down:'\u25BC', warn:'!'};
 function reasonHtml(r) {
   const srcs = [...(r.sources || [])].sort(byTrust).map(x => {
@@ -553,7 +589,7 @@ function render(d) {
      ${worldHtml(world)}
      <div id="evpanels"></div>
      ${act && po.name ? `<div class="posture" style="margin-top:14px"><span class="plabel">Suggested posture</span><b>${esc(po.name)}</b><span class="pline">${esc(po.line)}</span>${st.cause ? `<span class="pline">${esc(st.cause)}</span>` : ''}</div>` : ''}
-     <div class="reasoning"><h2 class="rh">Reasoning</h2>${(act ? reasons : whyNot).length ? `<ul class="why">${(act ? reasons : whyNot).map(reasonHtml).join('')}</ul>` : '<p class="meta">Nothing to report.</p>'}</div>
+     <div class="reasoning"><h2 class="rh">Reasoning</h2><p class="rsent">${esc(reasonSentence(step, scl.name, act ? reasons : whyNot))}</p>${reasonLinks(act ? reasons : whyNot)}</div>
      <div class="foot">Showing events that can reach <b>${esc(view.who)}</b>${view.personal ? '' : ' \u00B7 add your area below for a personal read'} \u00B7 ${when}</div>`;
   // chips open the sources behind each thing that is going on
   const panels = banner.querySelector('#evpanels');
