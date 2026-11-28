@@ -1684,6 +1684,9 @@ def make_coops(coops):
                                    key=f"coop:{c['slug']}", tags=["regional-only"], states=[c["state"]]))
         if ok == 0:
             raise RuntimeError("no co-op outage map reachable")
+        if not sigs:   # so the Electric power area shows this source is watching
+            sigs.append(Signal("power", 0, f"Co-op outage maps: {ok} of {len(coops)} reachable, no large outages",
+                               "https://outagemap-data.cloud.coop/", "Rural electric co-ops' own outage maps.", key="coop:quiet"))
         return CollectResult(sigs, {"coops_ok": f"{ok}/{len(coops)}", "out": ", ".join(notes),
                                     "failed": ", ".join(failed) or "-"})
     return fn
@@ -1798,6 +1801,90 @@ def water_emergencies(ctx):
 
 
 
+AMTRAK_URL = "https://api-v3.amtraker.com/v3/trains"
+RAIL_LATE_MIN = 60          # a train this many minutes behind its schedule counts as badly late
+RAIL_LATE_SHARE = 0.6       # ...and a jump needs at least this share of running trains badly late
+RAIL_SPIKE = 1.8            # ...and at least this multiple of the usual share
+
+
+def _amtrak_delay_min(t):
+    """Minutes behind schedule at the train's most recent stop (0 if on time or unknown)."""
+    last = None
+    for st in t.get("stations") or []:
+        if st.get("status") in ("Departed", "Station"):
+            last = st
+    if not last:
+        return 0
+    try:
+        a = datetime.fromisoformat(last.get("dep") or last.get("arr"))
+        b = datetime.fromisoformat(last.get("schDep") or last.get("schArr"))
+        return max(0, (a - b).total_seconds() / 60)
+    except (TypeError, ValueError):
+        return 0
+
+
+def amtrak_delays(ctx):
+    """Amtrak trains running right now, from the community-run Amtraker feed (Amtrak publishes no official one).
+    Only a sudden jump in the share of badly late trains, against its own usual level, counts. Watch at most."""
+    d = fetch_json(AMTRAK_URL, timeout=40, gzip_ok=True)
+    trains = [t for v in d.values() for t in v if isinstance(t, dict) and t.get("trainState") == "Active"]
+    if len(trains) < 20:
+        raise RuntimeError(f"Amtrak feed shows only {len(trains)} running trains; not enough to judge")
+    late = sum(1 for t in trains if _amtrak_delay_min(t) >= RAIL_LATE_MIN)
+    share = late / len(trains)
+    base, _n = ctx.store.baseline("rail:late_share") if ctx else (None, 0)
+    ctx and ctx.store.record("rail:late_share", share)
+    sigs = []
+    if share >= RAIL_LATE_SHARE and share >= RAIL_SPIKE * max(base or 0, 0.1):
+        sigs.append(Signal("transport", 1, f"Amtrak: {late} of {len(trains)} running trains are over an hour late (usually far fewer)",
+                           "https://www.amtrak.com/train-routes", "From a community-run live train feed; a sign of a rail disruption.",
+                           key="rail:late"))
+    else:
+        sigs.append(Signal("transport", 0, f"Amtrak: {len(trains)} trains running, {late} over an hour late, nothing unusual",
+                           "https://www.amtrak.com/train-routes", "Community-run live train feed. Ports and bridges have no national live feed.",
+                           key="rail:quiet"))
+    return CollectResult(sigs, {"running": len(trains), "late_60min": late, "late_share": f"{share:.0%}"})
+
+
+HAZ_EVENTS = ("Hazardous Materials Warning", "Shelter In Place Warning", "Radiological Hazard Warning", "Nuclear Power Plant Warning")
+INDUSTRIAL_RX = re.compile(r"chemical (plant|facility|release|spill|fire)|refinery (fire|explosion)|plant explosion|"
+                           r"(ammonia|chlorine|toxic) (leak|release|plume|gas)|industrial (fire|explosion)|train derailment", re.I)
+
+
+def hazmat_sites(ctx):
+    """Industrial and chemical incidents, from Weather Service alert text. The official hazmat and shelter-in-place
+    warnings are already counted under Civil emergency alerts, so they are shown here as context only (they do not
+    count twice). Other alerts that mention a plant, refinery or chemical release can raise Watch, no higher.
+    The Coast Guard's spill-report feed (NRC) and the NRC's plant event reports block automated access."""
+    feats = fetch_json("https://api.weather.gov/alerts/active?status=actual&message_type=alert,update",
+                       headers={"Accept": "application/geo+json"}).get("features", [])
+    official, text_hits = [], []
+    for f in feats:
+        p = f.get("properties", {})
+        if p.get("event") in HAZ_EVENTS:
+            official.append(f)
+        elif INDUSTRIAL_RX.search(" ".join(str(p.get(k) or "") for k in ("event", "headline", "description"))):
+            text_hits.append(f)
+    sigs = []
+    if text_hits:
+        links = [{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110), "url": f.get("id", "")}
+                 for f in text_hits[:6]]
+        sigs.append(Signal("industrial", 1, f"Weather Service alerts mention a plant, refinery or chemical release: {len(text_hits)} active",
+                           "https://alerts.weather.gov/", "; ".join(short(f["properties"].get("areaDesc"), 60) for f in text_hits[:3]),
+                           key="industrial:nws-text", links=links, tags=["regional-only"], states=sorted(_states_of(text_hits))))
+    else:
+        note = f"; {len(official)} official hazmat or shelter-in-place warning(s) are counted under Civil emergency alerts" if official else ""
+        sigs.append(Signal("industrial", 0, "No plant, refinery or chemical-release incidents in Weather Service alerts" + note,
+                           "https://alerts.weather.gov/", "Context only for official warnings.", key="industrial:quiet"))
+    n_nuc = sum(1 for f in official if f["properties"].get("event") in ("Radiological Hazard Warning", "Nuclear Power Plant Warning"))
+    if not n_nuc:   # real nuclear warnings are raised by the main alerts source; this just shows the area is watched
+        sigs.append(Signal("nuclear", 0, "No nuclear power plant or radiological warnings in Weather Service alerts",
+                           "https://alerts.weather.gov/", "Official nuclear warnings come through the emergency-alerts source.",
+                           key="nuclear:quiet"))
+    return CollectResult(sigs, {"alerts_checked": len(feats), "official_hazmat": len(official), "text_matches": len(text_hits)})
+
+
+
 def build_collectors(cfg, data_dir=None):
     iv = cfg["intervals"]
     _LOCAL_RX[0] = signalwords.load_local(data_dir) if data_dir else None
@@ -1837,6 +1924,8 @@ def build_collectors(cfg, data_dir=None):
                   make_wzdx(cfg.get("wzdx_feeds", []))),
         Collector("Dam, levee and water-system emergencies", "gov", "https://alerts.weather.gov/", iv.get("water_systems", 600),
                   water_emergencies),
+        Collector("Amtrak train delays", "private", "https://www.amtrak.com/train-routes", iv.get("rail", 600), amtrak_delays),
+        Collector("Plant, refinery and hazmat incidents", "gov", "https://alerts.weather.gov/", iv.get("hazmat", 600), hazmat_sites),
         Collector("FDIC failed banks", "gov", "https://www.fdic.gov/bank-failures/failed-bank-list", iv.get("fdic", 21600),
                   fdic_failures),
         Collector("Reddit", "social", "https://www.reddit.com/", iv["reddit"], make_reddit(cfg)),
