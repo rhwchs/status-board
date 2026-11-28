@@ -1145,6 +1145,29 @@ def adsb(ctx):
     return CollectResult(sigs, {"airborne_us": total})
 
 
+def aaa_gas(ctx):
+    """AAA national average price of regular gasoline, with its own yesterday and last-week figures.
+    A quick jump is a sign of a fuel supply shock (a pipeline or refinery outage moves it within days). Daily data,
+    so it confirms rather than leads; and it can only ever raise a WATCH."""
+    raw = fetch("https://gasprices.aaa.com/", browser=True, timeout=20).decode("utf-8", "replace")
+    txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", raw))
+
+    def row(label):
+        m = re.search(label + r"\s+\$(\d\.\d{2,4})", txt)
+        return float(m.group(1)) if m else None
+    now_, yday, week = row(r"Current Avg\."), row(r"Yesterday Avg\."), row(r"Week Ago Avg\.")
+    if not now_ or not (2.0 < now_ < 10.0):
+        raise RuntimeError("AAA's gas-price page layout changed (no regular price found)")
+    d_day = (now_ - yday) if yday else 0.0
+    d_wk = (now_ - week) if week else 0.0
+    sev = 1 if (d_wk >= 0.25 or d_day >= 0.12) else 0
+    chg = f"{d_wk * 100:+.0f} cents vs a week ago" if week else "no week-ago figure"
+    return CollectResult([Signal("fuel", sev, f"Gas price (AAA national average, regular): ${now_:.2f}, {chg}",
+                                 "https://gasprices.aaa.com/", "A sharp rise in days can mean a fuel supply disruption. Updated daily.",
+                                 key="aaa:gas")],
+                         {"regular_price": f"${now_:.2f}", "vs_week_ago": f"{d_wk * 100:+.0f} cents"})
+
+
 EWS_URL = "https://pub-49bb6a6f314c47be9b481c25e5f6ca9e.r2.dev/dashboard.json"
 EWS_SEV = {1: 0, 2: 0, 3: 1, 4: 1, 5: 2}   # a proxy for "wealthy people leaving", so it is never allowed above severity 2
 
@@ -1733,6 +1756,7 @@ def build_collectors(cfg, data_dir=None):
                   nws_weather),
         Collector("NOAA space weather", "gov", "https://www.swpc.noaa.gov/", iv["swpc"], swpc),
         Collector("USGS seismic", "gov", "https://earthquake.usgs.gov/earthquakes/map/", iv["usgs"], usgs),
+        Collector("AAA national gas price", "private", "https://gasprices.aaa.com/", iv.get("fuel_prices", 3600), aaa_gas),
         Collector("CISA advisories (CSA/ED/KEV)", "gov", "https://www.cisa.gov/news-events/cybersecurity-advisories",
                   iv["cisa"], cisa),
         Collector("SANS Internet Storm Center", "private", "https://isc.sans.edu/", iv["sans"], sans_infocon),

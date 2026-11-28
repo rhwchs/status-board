@@ -640,7 +640,7 @@ function render(d) {
   const unplaced = lost.length ? `<details class="cat" style="--cc:var(--lx)"><summary><span class="cname">Other sources not working</span><span class="pill">NO DATA</span></summary><div class="body"><div class="srcrows">${lost.map(x => `<div class="srow"><i class="dot bad"></i>${link(x.home, x.name)} <span class="meta">${KIND[x.kind] || esc(x.kind)} \u00B7 NOT WORKING</span></div>`).join('')}</div></div></details>` : '';
   document.getElementById('cats').innerHTML = cats.map(([id, c]) => {
     const live = c.signals.filter(s => s.severity > 0);
-    const body = c.signals.length ? [...c.signals].sort((a, b) => byTrust(a, b) || (b.severity - a.severity)).map(sigHtml).join('') : '<div class="d" style="padding:8px 0">No data from sources for this domain.</div>';
+    const body = c.signals.length ? [...c.signals].sort((a, b) => byTrust(a, b) || (b.severity - a.severity)).map(sigHtml).join('') : (d.sources.some(x => (x.cats || []).includes(id) && x.ok) ? '<div class="d" style="padding:8px 0">Nothing reported right now. The sources above are checking.</div>' : '<div class="d" style="padding:8px 0">No data from sources for this domain.</div>');
     // the sources behind this area: those that report into it (even if down now) plus any that produced its readings
     const names = new Set(c.signals.map(x => x.source));
     const mem = d.sources.filter(x => (x.cats || []).includes(id) || names.has(x.name)).sort(byTrust);
