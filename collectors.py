@@ -251,6 +251,12 @@ def faa_nas(ctx):
 
 
 # event name -> (category, base severity, states needed for +1 bump)
+def alert_url(f, default="https://www.weather.gov/alerts"):
+    """A page a person can open for a Weather Service alert. The alert's own id is an api.weather.gov address that shows raw JSON."""
+    web = ((f.get("properties") or {}).get("web") or "")
+    return web if web.startswith("http") else default
+
+
 NWS_EVENTS = {
     "911 Telephone Outage Emergency": ("telecom", 2, 2),
     "Civil Emergency Message": ("emergency", 1, 3),
@@ -297,14 +303,14 @@ def nws_alerts(ctx):
                 states.add(u[:2])
         sev = min(3, base + (1 if len(states) >= bump_at else 0))
         links = [{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110),
-                  "url": f.get("id", "")} for f in items[:6]]
+                  "url": alert_url(f)} for f in items[:6]]
         sigs.append(Signal(cat, sev, f"Weather Service alert: {ev} — {len(items)} active in {len(states)} state(s)",
-                           "https://alerts.weather.gov/", ", ".join(sorted(states)), key=f"nws:{ev}",
+                           "https://www.weather.gov/alerts", ", ".join(sorted(states)), key=f"nws:{ev}",
                            links=links, tags=_nws_tags(ev, sev), states=sorted(states & geo.VALID_STATES),
                            meta={"event": ev}))
     if not sigs:
         sigs.append(Signal("emergency", 0, "No emergency-level Weather Service alerts right now",
-                           "https://alerts.weather.gov/", key="nws:none"))
+                           "https://www.weather.gov/alerts", key="nws:none"))
     return CollectResult(sigs, {"active_emergency_alerts": len(feats)})
 
 
@@ -331,10 +337,10 @@ def _states_of(items):
 def _hazard_signal(ev, sev, items):
     st = _states_of(items)
     return Signal("natural", sev, f"{ev}: {len(items)} active in {', '.join(sorted(st)) or 'the US'}",
-                  "https://alerts.weather.gov/", "An official Weather Service warning for a hazard that changes plans for days.",
+                  "https://www.weather.gov/alerts", "An official Weather Service warning for a hazard that changes plans for days.",
                   key=f"nws:hazard:{ev}", tags=["official-hazard"], states=sorted(st), meta={"event": ev},
                   links=[{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110),
-                          "url": f.get("id", "")} for f in items[:6]])
+                          "url": alert_url(f)} for f in items[:6]])
 WEATHER_MAJOR = ("Hurricane Warning", "Ice Storm Warning", "Blizzard Warning", "Extreme Wind Warning",
                  "Storm Surge Warning")
 
@@ -1386,7 +1392,7 @@ def make_local_nws(loc):
             until = parse_time(p.get("ends") or p.get("expires"))
             sigs.append(Signal("local", sev, f"Weather Service alert for {name}: {ev}", page,
                                short(p.get("headline") or "", 140), key=f"nwsl:{p.get('id', ev)}",
-                               links=[{"title": short(p.get("headline") or ev, 120), "url": f.get("id", page)}],
+                               links=[{"title": short(p.get("headline") or ev, 120), "url": alert_url(f, page)}],
                                time=parse_time(p.get("sent")) or time.time()))
         if not sigs:
             sigs.append(Signal("local", 0, f"No active Weather Service alerts for {name}", page, key="nwsl:none"))
@@ -1774,9 +1780,9 @@ def water_emergencies(ctx):
     sigs = []
     if hits:
         links = [{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110),
-                  "url": f.get("id", "")} for f in hits[:6]]
+                  "url": alert_url(f)} for f in hits[:6]]
         sigs.append(Signal("water", 1, f"Weather Service alerts mention a dam, levee or water-system problem: {len(hits)} active",
-                           "https://alerts.weather.gov/", "; ".join(short(f["properties"].get("areaDesc"), 60) for f in hits[:3]),
+                           "https://www.weather.gov/alerts", "; ".join(short(f["properties"].get("areaDesc"), 60) for f in hits[:3]),
                            key="water:nws", links=links, tags=["regional-only"], states=sorted(_states_of(hits))))
     fema_n, fema_note = 0, "no FEMA data"
     try:
@@ -1795,7 +1801,7 @@ def water_emergencies(ctx):
         fema_note = f"FEMA unreachable ({type(e).__name__})"
     if not sigs:
         sigs.append(Signal("water", 0, "No dam, levee or water-system emergencies in Weather Service alerts or FEMA declarations",
-                           "https://alerts.weather.gov/", "Boil-water notices are issued by local utilities and are not in any national feed.",
+                           "https://www.weather.gov/alerts", "Boil-water notices are issued by local utilities and are not in any national feed.",
                            key="water:quiet"))
     return CollectResult(sigs, {"alerts_checked": len(feats), "nws_matches": len(hits), "fema_30d": fema_n, "fema": fema_note})
 
@@ -1837,11 +1843,11 @@ def amtrak_delays(ctx):
     sigs = []
     if share >= RAIL_LATE_SHARE and share >= RAIL_SPIKE * max(base or 0, 0.1):
         sigs.append(Signal("transport", 1, f"Amtrak: {late} of {len(trains)} running trains are over an hour late (usually far fewer)",
-                           "https://www.amtrak.com/train-routes", "From a community-run live train feed; a sign of a rail disruption.",
+                           "https://amtraker.com/", "From a community-run live train feed; a sign of a rail disruption.",
                            key="rail:late"))
     else:
         sigs.append(Signal("transport", 0, f"Amtrak: {len(trains)} trains running, {late} over an hour late, nothing unusual",
-                           "https://www.amtrak.com/train-routes", "Community-run live train feed. Ports and bridges have no national live feed.",
+                           "https://amtraker.com/", "Community-run live train feed. Ports and bridges have no national live feed.",
                            key="rail:quiet"))
     return CollectResult(sigs, {"running": len(trains), "late_60min": late, "late_share": f"{share:.0%}"})
 
@@ -1867,19 +1873,19 @@ def hazmat_sites(ctx):
             text_hits.append(f)
     sigs = []
     if text_hits:
-        links = [{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110), "url": f.get("id", "")}
+        links = [{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110), "url": alert_url(f)}
                  for f in text_hits[:6]]
         sigs.append(Signal("industrial", 1, f"Weather Service alerts mention a plant, refinery or chemical release: {len(text_hits)} active",
-                           "https://alerts.weather.gov/", "; ".join(short(f["properties"].get("areaDesc"), 60) for f in text_hits[:3]),
+                           "https://www.weather.gov/alerts", "; ".join(short(f["properties"].get("areaDesc"), 60) for f in text_hits[:3]),
                            key="industrial:nws-text", links=links, tags=["regional-only"], states=sorted(_states_of(text_hits))))
     else:
         note = f"; {len(official)} official hazmat or shelter-in-place warning(s) are counted under Civil emergency alerts" if official else ""
         sigs.append(Signal("industrial", 0, "No plant, refinery or chemical-release incidents in Weather Service alerts" + note,
-                           "https://alerts.weather.gov/", "Context only for official warnings.", key="industrial:quiet"))
+                           "https://www.weather.gov/alerts", "Context only for official warnings.", key="industrial:quiet"))
     n_nuc = sum(1 for f in official if f["properties"].get("event") in ("Radiological Hazard Warning", "Nuclear Power Plant Warning"))
     if not n_nuc:   # real nuclear warnings are raised by the main alerts source; this just shows the area is watched
         sigs.append(Signal("nuclear", 0, "No nuclear power plant or radiological warnings in Weather Service alerts",
-                           "https://alerts.weather.gov/", "Official nuclear warnings come through the emergency-alerts source.",
+                           "https://www.weather.gov/alerts", "Official nuclear warnings come through the emergency-alerts source.",
                            key="nuclear:quiet"))
     return CollectResult(sigs, {"alerts_checked": len(feats), "official_hazmat": len(official), "text_matches": len(text_hits)})
 
@@ -1890,7 +1896,7 @@ def build_collectors(cfg, data_dir=None):
     _LOCAL_RX[0] = signalwords.load_local(data_dir) if data_dir else None
     cs = [
         Collector("FAA air traffic status", "gov", "https://nasstatus.faa.gov/", iv["faa"], faa_nas),
-        Collector("NWS emergency alerts", "gov", "https://alerts.weather.gov/", iv["nws"], nws_alerts),
+        Collector("NWS emergency alerts", "gov", "https://www.weather.gov/alerts", iv["nws"], nws_alerts),
         Collector("NWS severe-weather context", "gov", "https://www.weather.gov/", iv.get("nws_weather", 300),
                   nws_weather),
         Collector("NOAA space weather", "gov", "https://www.swpc.noaa.gov/", iv["swpc"], swpc),
@@ -1922,10 +1928,10 @@ def build_collectors(cfg, data_dir=None):
                   make_coops(cfg.get("coops", []))),
         Collector("State road events (WZDx)", "gov", "https://www.transportation.gov/av/data/wzdx", iv.get("wzdx", 600),
                   make_wzdx(cfg.get("wzdx_feeds", []))),
-        Collector("Dam, levee and water-system emergencies", "gov", "https://alerts.weather.gov/", iv.get("water_systems", 600),
+        Collector("Dam, levee and water-system emergencies", "gov", "https://www.weather.gov/alerts", iv.get("water_systems", 600),
                   water_emergencies),
-        Collector("Amtrak train delays", "private", "https://www.amtrak.com/train-routes", iv.get("rail", 600), amtrak_delays),
-        Collector("Plant, refinery and hazmat incidents", "gov", "https://alerts.weather.gov/", iv.get("hazmat", 600), hazmat_sites),
+        Collector("Amtrak train delays", "private", "https://amtraker.com/", iv.get("rail", 600), amtrak_delays),
+        Collector("Plant, refinery and hazmat incidents", "gov", "https://www.weather.gov/alerts", iv.get("hazmat", 600), hazmat_sites),
         Collector("FDIC failed banks", "gov", "https://www.fdic.gov/bank-failures/failed-bank-list", iv.get("fdic", 21600),
                   fdic_failures),
         Collector("Reddit", "social", "https://www.reddit.com/", iv["reddit"], make_reddit(cfg)),
