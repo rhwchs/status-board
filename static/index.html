@@ -186,6 +186,14 @@
     .world li a { display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; white-space:normal; }
     .world .wmeta { display:block; }
   }
+  details.lvmeans { margin:10px 0 0; font-size:13px; color:var(--dim); text-align:center; }
+  details.lvmeans > summary { cursor:pointer; display:inline-block; }
+  details.lvmeans ol { list-style:none; margin:8px 0 0; padding:0; text-align:left; }
+  details.lvmeans li { padding:3px 0; }
+  details.lvmeans li.now { color:var(--text); font-weight:700; }
+  details.lvmeans li b { display:inline-block; width:14px; }
+  details.lvmeans li span { font-weight:700; }
+  h3.evh { font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:var(--dim); margin:4px 0 2px; }
   .rsent { font-size:16px; line-height:1.45; margin:8px 0 6px; }
   ul.rlinks { list-style:none; margin:0 0 4px; padding:0; font-size:13px; }
   ul.rlinks li { padding:4px 0; }
@@ -234,6 +242,7 @@
   <div class="warn" id="warn"></div>
   <div class="banner" id="banner"><div class="lvl">Connecting…</div></div>
   <details class="srcs"><summary>All sources<span class="meta" id="srcsub"></span></summary>
+    <div id="evidence"></div>
     <p class="meta srcnote">Everything I'm watching, by area. Colors follow the scale; gray means no source in that area is working.</p>
     <div id="cats"></div>
 </details>
@@ -273,6 +282,11 @@
 <script>
 const COLORS = {0:'var(--l0)',1:'var(--l1)',2:'var(--l2)',3:'var(--l3)'};
 // Lundy's tagline for each level: the big line on the status card, and the small line under each step of the scale.
+// What each level means to a reader: confidence that something is happening and how much it could affect people or services.
+const LVMEAN = ['No significant developing event detected.', 'An unusual condition has been detected. Monitoring continues.',
+  'Credible evidence of an event that could affect people or essential services.',
+  'A significant event is developing or expected to affect people or essential services.',
+  'A significant event is confirmed and its impact is occurring or imminent.'];
 const STEPTAG = ['Probably fine today.', "That's interesting.", 'Look at this.', "Something's up.", 'This is happening.'];
 
 // ---- brand: a spirit level whose vial colour and bubble follow the current step (step 1 = bubble centred)
@@ -483,13 +497,13 @@ function reasonSentence(step, name, list) {
   const lead = step ? `This is Level ${step} (${name}) because ` : 'There is no reading because ';
   return lead + (main.length ? andList(main) : 'nothing specific stands out') + tail + '.';
 }
-function reasonLinks(list) {
+function reasonLinks(list, limit = 6) {
   const seen = new Set(), out = [];
   for (const x of list.flatMap(r => r.sources || []).sort(byTrust)) {
     if (!x.url || seen.has(x.url)) continue;
     seen.add(x.url);
     out.push(`<li><span class="badge">${KIND[x.kind] || esc(x.kind)}</span>${link(x.url, x.title)}${x.by ? ` <span class="by">${esc(x.by)}</span>` : ''}</li>`);
-    if (out.length >= 6) break;
+    if (out.length >= limit) break;
   }
   return out.length ? `<ul class="rlinks">${out.join('')}</ul>` : '';
 }
@@ -585,11 +599,12 @@ function render(d) {
         ${desc ? `<p class="desc lvsay">${desc}</p>` : ''}
       </div>
       <div><ol class="scale" aria-label="Alert scale">${scale}</ol>${step === null ? '<div class="scalenote">No reading: not an all-clear.</div>' : ''}</div></div>
-     <p class="purpose">This page watches public sources for events that could affect you, and gives an informed opinion on whether to consider changing your immediate plans or preparations.</p>
+     <p class="purpose">This page watches public sources for events that could affect you, and gives an informed opinion on whether to consider changing your immediate plans or preparations. Normal Conditions is not a guarantee of safety.</p>
+     <details class="lvmeans"><summary>What the levels mean</summary><ol>${LVMEAN.map((t, i) => `<li${step === i + 1 ? ' class="now"' : ''}><b>${i + 1}</b> <span>${esc((scl.names || [])[i] || '')}</span>: ${esc(t)}</li>`).join('')}</ol></details>
      ${worldHtml(world)}
      <div id="evpanels"></div>
      ${act && po.name ? `<div class="posture" style="margin-top:14px"><span class="plabel">Suggested posture</span><b>${esc(po.name)}</b><span class="pline">${esc(po.line)}</span>${st.cause ? `<span class="pline">${esc(st.cause)}</span>` : ''}</div>` : ''}
-     <div class="reasoning"><h2 class="rh">Reasoning</h2><p class="rsent">${esc(reasonSentence(step, scl.name, act ? reasons : whyNot))}</p>${reasonLinks(act ? reasons : whyNot)}</div>
+     <div class="reasoning"><h2 class="rh">Reasoning</h2><p class="rsent">${esc(reasonSentence(step, scl.name, act ? reasons : whyNot))}</p>${step >= 2 ? reasonLinks(reasons.filter(r => r.dir === 'up' || r.dir === 'soft'), 3) : ''}</div>
      <div class="foot">Showing events that can reach <b>${esc(view.who)}</b>${view.personal ? '' : ' \u00B7 add your area below for a personal read'} \u00B7 ${when}</div>`;
   // chips open the sources behind each thing that is going on
   const panels = banner.querySelector('#evpanels');
@@ -649,6 +664,8 @@ function render(d) {
     : '<div class="meta">Nothing yet — events appear here when a signal first rises above normal.</div>';
 
   const okN = d.sources.filter(s => s.ok).length;
+  { const evl = reasonLinks(act ? reasons : whyNot, 8);
+    document.getElementById('evidence').innerHTML = evl ? `<h3 class="evh">What I checked for the reasoning above</h3>${evl}` : ''; }
   document.getElementById('srcsub').textContent = ` · ${okN} of ${d.sources.length} working`;
 }
 
