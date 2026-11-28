@@ -1741,9 +1741,61 @@ def make_wzdx(feeds):
                                key=key, tags=["regional-only"], states=list(states)))
         if ok == 0:
             raise RuntimeError("no state road-event feed reachable")
+        if not sigs:   # so the Roads area shows this source is watching, instead of "no sources"
+            total = sum(v[0] for v in counts.values())
+            sigs.append(Signal("roads", 0, f"State road-event feeds: {total} full highway closures across {ok} feeds, nothing unusual",
+                               "https://www.transportation.gov/av/data/wzdx", "Compared with each state's own usual number.",
+                               key="roads:quiet"))
         return CollectResult(sigs, {"feeds_ok": f"{ok}/{len(feeds)}", "full_closures": ", ".join(f"{s} {v[0]}" for s, v in sorted(counts.items())),
                                     "failed": ", ".join(failed) or "-"})
     return fn
+
+
+WATER_RX = re.compile(r"dam (failure|break)|(failure|breach|break) of the \w+ dam|levee (failure|break|breach)|"
+                      r"\bboil[- ](water )?(advisory|order|notice)|"
+                      r"water (system|supply|main|treatment)[^.]{0,60}(failure|outage|contaminat|emergency|shut ?down)", re.I)
+
+
+def water_emergencies(ctx):
+    """Dam and levee failures and public water-system emergencies, from two official feeds: Weather Service alert text
+    and FEMA's disaster declarations (incident type Dam/Levee Break). Context only: Watch at most. Quiet days still
+    report in, so the Water area shows the sources are looking."""
+    feats = fetch_json("https://api.weather.gov/alerts/active?status=actual&message_type=alert,update",
+                       headers={"Accept": "application/geo+json"}).get("features", [])
+    hits = []
+    for f in feats:
+        p = f.get("properties", {})
+        text = " ".join(str(p.get(k) or "") for k in ("event", "headline", "description", "instruction"))
+        if WATER_RX.search(text):
+            hits.append(f)
+    sigs = []
+    if hits:
+        links = [{"title": short(f["properties"].get("headline") or f["properties"].get("areaDesc"), 110),
+                  "url": f.get("id", "")} for f in hits[:6]]
+        sigs.append(Signal("water", 1, f"Weather Service alerts mention a dam, levee or water-system problem: {len(hits)} active",
+                           "https://alerts.weather.gov/", "; ".join(short(f["properties"].get("areaDesc"), 60) for f in hits[:3]),
+                           key="water:nws", links=links, tags=["regional-only"], states=sorted(_states_of(hits))))
+    fema_n, fema_note = 0, "no FEMA data"
+    try:
+        since = time.strftime("%Y-%m-%dT00:00:00.000Z", time.gmtime(time.time() - 30 * 86400))
+        flt = urllib.parse.quote(f"incidentType eq 'Dam/Levee Break' and declarationDate ge '{since}'", safe="")
+        fd = fetch_json("https://www.fema.gov/api/open/v2/DisasterDeclarationsSummaries?$top=20&$filter=" + flt +
+                        "&$select=disasterNumber,state,declarationTitle,declarationDate", timeout=30)
+        rows = fd.get("DisasterDeclarationsSummaries", [])
+        fema_n, fema_note = len({r["disasterNumber"] for r in rows}), "ok"
+        if rows:
+            sts = sorted({r["state"] for r in rows} & geo.VALID_STATES)
+            sigs.append(Signal("water", 1, f"FEMA: {fema_n} dam or levee break declaration(s) in the last 30 days ({', '.join(sts)})",
+                               "https://www.fema.gov/disaster/declarations", "Federal disaster declarations, so these can lag the event.",
+                               key="water:fema", tags=["regional-only"], states=sts))
+    except Exception as e:
+        fema_note = f"FEMA unreachable ({type(e).__name__})"
+    if not sigs:
+        sigs.append(Signal("water", 0, "No dam, levee or water-system emergencies in Weather Service alerts or FEMA declarations",
+                           "https://alerts.weather.gov/", "Boil-water notices are issued by local utilities and are not in any national feed.",
+                           key="water:quiet"))
+    return CollectResult(sigs, {"alerts_checked": len(feats), "nws_matches": len(hits), "fema_30d": fema_n, "fema": fema_note})
+
 
 
 def build_collectors(cfg, data_dir=None):
@@ -1783,6 +1835,8 @@ def build_collectors(cfg, data_dir=None):
                   make_coops(cfg.get("coops", []))),
         Collector("State road events (WZDx)", "gov", "https://www.transportation.gov/av/data/wzdx", iv.get("wzdx", 600),
                   make_wzdx(cfg.get("wzdx_feeds", []))),
+        Collector("Dam, levee and water-system emergencies", "gov", "https://alerts.weather.gov/", iv.get("water_systems", 600),
+                  water_emergencies),
         Collector("FDIC failed banks", "gov", "https://www.fdic.gov/bank-failures/failed-bank-list", iv.get("fdic", 21600),
                   fdic_failures),
         Collector("Reddit", "social", "https://www.reddit.com/", iv["reddit"], make_reddit(cfg)),
